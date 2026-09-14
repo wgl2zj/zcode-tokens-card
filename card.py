@@ -1,39 +1,40 @@
 """横卡窗口:QPainter 全量自绘(布局、动画、拖动交互)。
 
-布局坐标按 design/横卡设计稿.html 的 CSS 盒模型换算(逻辑像素)。
+玻璃拟态皮肤(选型稿 04 号):356x192,半透明渐变底 + 白亮边 + 内缘反光;
+Win10 下由 main.py 叠加 DWM 亚克力模糊获得真实磨砂。
 """
 
 import math
 import time
 
 from PySide6.QtCore import QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
 import config as cfg
 import stats as S
 import theme as T
 
-# —— 布局常量(px,源自设计稿换算) ——
-BIG_RECT = (18, 34, 185, 38)          # 今日大数字
-CAP_RECT = (18, 73, 185, 14)          # "今日 TOKENS"
-BIG_INC_RIGHT = 203                   # 大飘字右端
+# —— 布局常量(px,356x192) ——
+BIG_RECT = (18, 34, 165, 38)          # 今日大数字
+CAP_RECT = (18, 73, 165, 14)          # "今日 TOKENS"
+BIG_INC_RIGHT = 191                   # 大飘字右端(竖分隔线左侧)
 BIG_INC_TOP = 32
-DIVIDER_V_X = 212                     # 主区竖分隔线
+DIVIDER_V_X = 194                     # 主区竖分隔线
 DIVIDER_V_Y = (38, 92)
 MI_ROW_CY = (39, 60, 81)              # 三列行中心
-MI_LABEL_X = 228                      # 三列标签 x
-MI_VALUE_X, MI_VALUE_W = 258, 104     # 数值居中区
-MI_INC_RIGHT = 360                    # 右栏飘字右端
+MI_LABEL_X = 210                      # 三列标签 x
+MI_VALUE_X, MI_VALUE_W = 238, 100     # 数值居中区
+MI_INC_RIGHT = 338                    # 右栏飘字右端
 DIVIDER_H_Y = 96                      # 模型区横分隔线
-MODEL_ROW_CY = (114, 138, 162)        # 模型行中心
+MODEL_ROW_CY = (117, 142, 167)        # 模型行中心
 M_DOT_X, M_DOT_SIZE = 18, 8
-M_NAME_X, M_NAME_W = 34, 118
-M_TRACK_X, M_TRACK_W, M_TRACK_H = 160, 120, 6
-M_VAL_RIGHT = 362
+M_NAME_X, M_NAME_W = 34, 100
+M_TRACK_X, M_TRACK_W, M_TRACK_H = 142, 108, 6
+M_VAL_RIGHT = 338
 TOP_DOT = (18, 17, 8, 8)              # 呼吸灯
 TOP_TEXT_X = 34
-TOP_RIGHT = 362
+TOP_RIGHT = 338
 MI_KEYS = ("输入", "输出", "缓存")
 TWEEN_KEYS = ("total", "input", "output", "cache", "m0", "m1", "m2")
 
@@ -172,11 +173,25 @@ class FloatCard(QWidget):
         self._draw_models(p, now)
 
     def _draw_card(self, p: QPainter) -> None:
+        """玻璃卡体:对角半透明渐变底 + 内缘上亮下暗反光 + 白亮描边。"""
+        rect = QRectF(0.5, 0.5, T.CARD_W - 1, T.CARD_H - 1)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0.5, 0.5, T.CARD_W - 1, T.CARD_H - 1),
-                            T.RADIUS, T.RADIUS)
-        p.fillPath(path, _color(T.C_CARD_BG))
-        p.setPen(QPen(_color(T.C_CARD_BORDER), T.BORDER_W))
+        path.addRoundedRect(rect, T.RADIUS, T.RADIUS)
+        grad = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        grad.setColorAt(0.0, _color(T.C_GLASS_TOP, T.A_GLASS_TOP))
+        grad.setColorAt(1.0, _color(T.C_GLASS_BOTTOM, T.A_GLASS_BOTTOM))
+        p.fillPath(path, grad)
+        # 内缘高光:顶部最亮向下渐隐,模拟玻璃上缘反光(中间两档为过渡系数)
+        inner = QPainterPath()
+        inner.addRoundedRect(QRectF(1.5, 1.5, T.CARD_W - 3, T.CARD_H - 3),
+                             T.RADIUS - 1, T.RADIUS - 1)
+        edge = QLinearGradient(0, 0, 0, T.CARD_H)
+        edge.setColorAt(0.0, _color(T.C_CARD_BORDER, T.A_EDGE_GLOW))
+        edge.setColorAt(0.3, _color(T.C_CARD_BORDER, 0.10))
+        edge.setColorAt(1.0, _color(T.C_CARD_BORDER, 0.05))
+        p.setPen(QPen(QBrush(edge), 1))
+        p.drawPath(inner)
+        p.setPen(QPen(_color(T.C_CARD_BORDER, T.A_CARD_BORDER), T.BORDER_W))
         p.drawPath(path)
 
     def _draw_top(self, p: QPainter, now: float) -> None:
@@ -221,7 +236,7 @@ class FloatCard(QWidget):
                                    T.FS_INC, start_dy=8, end_dy=-14):
                 self.inc_big = None
         # 竖分隔线
-        p.setPen(QPen(_color(T.C_DIVIDER), 1))
+        p.setPen(QPen(_color(T.C_DIVIDER, T.A_DIVIDER), 1))
         p.drawLine(DIVIDER_V_X, DIVIDER_V_Y[0],
                    DIVIDER_V_X, DIVIDER_V_Y[1])
         # 三列:标签 | 数值居中 | 右侧飘字;缓存行附加当日占比
@@ -250,8 +265,8 @@ class FloatCard(QWidget):
                     self.inc_mi[i] = None
 
     def _draw_models(self, p: QPainter, now: float) -> None:
-        p.setPen(QPen(_color(T.C_DIVIDER), 1))
-        p.drawLine(18, DIVIDER_H_Y, 362, DIVIDER_H_Y)
+        p.setPen(QPen(_color(T.C_DIVIDER, T.A_DIVIDER), 1))
+        p.drawLine(18, DIVIDER_H_Y, M_VAL_RIGHT, DIVIDER_H_Y)
         fm_name = _font(T.F_UI, T.FS_MNAME, weight=QFont.DemiBold)
         for i, cy in enumerate(MODEL_ROW_CY):
             name, _total = (self.models[i] if i < len(self.models)
@@ -271,7 +286,7 @@ class FloatCard(QWidget):
                        Qt.AlignLeft | Qt.AlignVCenter, elided)
             # 占比条
             p.setPen(Qt.NoPen)
-            p.setBrush(_color(T.C_DIVIDER))
+            p.setBrush(_color(T.C_DIVIDER, T.A_DIVIDER))
             p.drawRoundedRect(QRect(M_TRACK_X, int(cy) - 3,
                                     M_TRACK_W, M_TRACK_H), 3, 3)
             w = max(3, min(M_TRACK_W, self.bar_w[i])) if name else 0

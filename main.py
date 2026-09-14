@@ -44,6 +44,31 @@ def foreground_process_name() -> str:
         _k32.CloseHandle(h)
 
 
+def enable_glass_blur(hwnd: int) -> None:
+    """Win10 亚克力模糊(SetWindowCompositionAttribute):玻璃皮肤的真实磨砂底。
+
+    调用失败或系统不支持时静默跳过——卡片自身已有半透明渐变底,不模糊也可读。
+    GradientColor alpha 取 0x01:只借系统的模糊,着色交给 QPainter 画的渐变底。
+    """
+    class _AccentPolicy(ctypes.Structure):
+        _fields_ = [("AccentState", ctypes.c_int),        # 4=ACRYLICBLURBEHIND
+                    ("AccentFlags", ctypes.c_int),        # 2=绘制四边
+                    ("GradientColor", ctypes.c_uint),     # ABGR
+                    ("AnimationId", ctypes.c_int)]
+
+    class _CompAttrData(ctypes.Structure):
+        _fields_ = [("Attribute", ctypes.c_int),          # 19=ACCENT_POLICY
+                    ("Data", ctypes.c_void_p),
+                    ("SizeOfData", ctypes.c_size_t)]
+
+    policy = _AccentPolicy(4, 2, 0x01000000, 0)
+    data = _CompAttrData(
+        19,
+        ctypes.cast(ctypes.pointer(policy), ctypes.c_void_p),
+        ctypes.sizeof(_AccentPolicy))
+    _u32.SetWindowCompositionAttribute(hwnd, ctypes.byref(data))
+
+
 def make_tray_icon() -> QIcon:
     """自绘托盘图标(深底圆角 + 绿色 Z),不依赖图片文件。"""
     pm = QPixmap(32, 32)
@@ -84,6 +109,8 @@ class App:
         self.card = card_mod.FloatCard()
         self._restore_pos()
         self.card.show()
+        # 玻璃皮肤:show 之后才有有效 winId,再开亚克力模糊
+        enable_glass_blur(int(self.card.winId()))
 
         # 托盘
         self.tray = QSystemTrayIcon(make_tray_icon())
@@ -128,8 +155,9 @@ class App:
         if not isinstance(x, int) or not isinstance(y, int) \
                 or not self._on_screen(x, y):
             screen = self.card.screen().availableGeometry()
-            x = screen.right() - CARD_W - 40
-            y = screen.top() + 60
+            # 默认落位:主屏右下角(任务栏上方),贴近 ZCode 最大化时的右下空白区
+            x = screen.right() - CARD_W - 20
+            y = screen.bottom() - CARD_H - 14
         self.card.move(x, y)
 
     @staticmethod
