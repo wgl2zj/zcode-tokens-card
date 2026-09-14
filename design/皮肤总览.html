@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<!-- ============================================================
+ZCode 用量悬浮窗 · 10 种视觉皮肤总览（同构换肤选型稿）。
+与 design/风格总览.html 的区别：那一轮选"信息形态"（定稿=数字翻牌横卡），
+这一轮保持 380x184 横卡的信息架构与尺寸完全不变，只换视觉皮肤：
+配色 / 材质 / 字体气质 / 圆角与阴影语言 / 装饰纹理。
+数据取自真实截图（9月14日）：1.51亿 · 732 次 · 缓存占比 97%。
+============================================================ -->
+<html lang="zh"><head><meta charset="utf-8">
+<title>ZCode 用量悬浮窗 · 10 种视觉皮肤</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#101216;color:#e8eaed;font-family:'Segoe UI','Microsoft YaHei',sans-serif;padding:34px 40px}
+h1{font-size:22px;font-weight:700}
+h1 span{color:#3ddc84}
+.sub{color:#8b929c;font-size:13px;margin-top:6px;line-height:1.8;max-width:900px}
+.sub b{color:#d8dde4}
+.grid{margin-top:24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:18px;max-width:1160px}
+.cell{background:#171a20;border:1px solid #262a31;border-radius:12px;overflow:hidden;transition:border-color .15s}
+.cell:hover{border-color:#3ddc84}
+.cell .head{display:flex;align-items:baseline;gap:10px;padding:12px 14px 10px}
+.cell .head .no{font-family:Consolas,monospace;font-size:15px;font-weight:700;color:#3ddc84}
+.cell .head .nm{font-size:14px;font-weight:700}
+.cell .head .lv{margin-left:auto;font-size:10.5px;font-family:Consolas,monospace;background:#1c2b22;color:#3ddc84;border:1px solid #2b4433;border-radius:5px;padding:1px 8px;white-space:nowrap}
+.cell .head .lv.l3{background:#2b2333;color:#c99bff;border-color:#44335c}
+.cell .head .lv.l2{background:#232b38;color:#7fb4e8;border-color:#33465e}
+.cell .trait{padding:0 14px 10px;font-size:11.5px;color:#8b929c;line-height:1.6}
+.stage{padding:26px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.swatches{display:flex;align-items:center;gap:6px;padding:10px 14px 0}
+.swatches i{width:14px;height:14px;border-radius:4px;border:1px solid rgba(255,255,255,.14)}
+.swatches .mono{margin-left:8px;font-family:Consolas,monospace;font-size:10.5px;color:#5f6672}
+.note{padding:8px 14px 13px;font-size:11px;color:#6f7681;line-height:1.65}
+.note b{color:#a8b0ba;font-weight:600}
+.foot{margin-top:26px;color:#5f6672;font-size:12px;line-height:1.9;max-width:900px}
+.foot b{color:#a8b0ba}
+
+/* ================= 共享布局（与现卡完全同构，380x184） ================= */
+.win{width:380px;height:184px;padding:13px 18px;display:flex;flex-direction:column;position:relative;overflow:hidden;flex:none}
+.top{display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;animation:bk 2.4s ease-in-out infinite}
+@keyframes bk{50%{opacity:.35}}
+.model{font-size:12.5px;font-weight:600;flex:1}
+.req{font-size:11px;font-family:Consolas,monospace}
+.main{flex:1;display:flex;align-items:center;gap:18px;margin-top:2px}
+.left{flex:1.1;position:relative}
+.big{font-family:Consolas,monospace;font-size:33px;font-weight:700;letter-spacing:1px;line-height:1.1}
+.cap{font-size:10.5px;letter-spacing:4px;margin-top:3px}
+.right{flex:1;display:flex;flex-direction:column;gap:6px;border-left:1px solid transparent;padding-left:16px}
+.mi{display:flex;align-items:baseline}
+.mi .k{font-size:10.5px;width:30px;flex:none}
+.mi .v{flex:1;text-align:center;font-family:Consolas,monospace;font-size:12.5px;font-weight:700;white-space:nowrap}
+.mtop{margin-top:8px;padding-top:9px;border-top:1px solid transparent;display:flex;flex-direction:column;gap:7px}
+.mrow{display:flex;align-items:center;gap:8px}
+.mrow i{width:8px;height:8px;border-radius:2px;flex:none}
+.mrow .n{font-size:12.5px;font-weight:600;width:118px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow .track{flex:1;height:6px;border-radius:3px;overflow:hidden}
+.mrow .track b{display:block;height:100%;border-radius:3px}
+.mrow .v{font-family:Consolas,monospace;font-size:14.5px;font-weight:700;width:74px;text-align:right;white-space:nowrap}
+
+/* ============ 01 纸感浅色（Notion / 文档极简） ============ */
+.s1-stage{background:#ece9e2}
+.s1{background:#fdfcf9;border:1px solid #e9e5dc;border-radius:10px;box-shadow:0 1px 3px rgba(15,15,15,.06),0 5px 14px rgba(15,15,15,.05)}
+.s1 .dot{background:#d9730d;box-shadow:0 0 5px rgba(217,115,13,.5)}
+.s1 .model{color:#5f5e5b}
+.s1 .req{color:#a39d90}
+.s1 .big{color:#37352f}
+.s1 .cap{color:#b3ada0}
+.s1 .right{border-left-color:#eeece5}
+.s1 .mi .k{color:#a39d90}
+.s1 .mi .v{color:#37352f}
+.s1 .mtop{border-top-color:#eeece5}
+.s1 .mrow i{border-radius:3px}
+.s1 .mrow .n{color:#4b4a45}
+.s1 .mrow .track{background:#f0ede6}
+.s1 .mrow .track b{border-radius:2px}
+.s1 .mrow .v{color:#37352f}
+
+/* ============ 02 电子墨水 E-Ink ============ */
+.s2-stage{background:#d9d7cd}
+.s2{background:#f2f0e9;background-image:radial-gradient(rgba(0,0,0,.035) 1px,transparent 1px);background-size:3px 3px;border:2px solid #26261f;border-radius:4px}
+.s2 .dot{border-radius:1px;background:#1c1c1c}
+.s2 .model{color:#1c1c1c;font-family:SimSun,'宋体',serif}
+.s2 .req{color:#55534a}
+.s2 .big{color:#141414;font-family:Georgia,'Times New Roman',SimSun,serif;font-weight:700}
+.s2 .cap{color:#777468}
+.s2 .right{border-left-color:#c9c6b9}
+.s2 .mi .k{color:#55534a;font-family:SimSun,'宋体',serif}
+.s2 .mi .v{color:#141414}
+.s2 .mtop{border-top-color:#26261f}
+.s2 .mrow i{border-radius:1px}
+.s2 .mrow .n{color:#26251f;font-family:SimSun,'宋体',serif}
+.s2 .mrow .track{background:#dbd8cb;border-radius:0}
+.s2 .mrow .track b{border-radius:0}
+.s2 .mrow .v{color:#141414}
+
+/* ============ 03 新拟物 Neumorphism ============ */
+.s3-stage{background:#e3e8f0}
+.s3{background:#e3e8f0;border:none;border-radius:18px;box-shadow:8px 8px 18px #c3cbd9,-8px -8px 18px #ffffff}
+.s3 .dot{background:#6a7fdb;box-shadow:0 0 0 3px rgba(106,127,219,.18)}
+.s3 .model{color:#5b6474}
+.s3 .req{color:#8a94a8}
+.s3 .big{color:#4a5568;text-shadow:1px 1px 0 #ffffff}
+.s3 .cap{color:#98a1b3}
+.s3 .right{border-left-color:#d3d9e3}
+.s3 .mi .k{color:#8a94a8}
+.s3 .mi .v{color:#56617a;text-shadow:1px 1px 0 #ffffff}
+.s3 .mtop{border-top-color:#d3d9e3}
+.s3 .mrow i{border-radius:50%;box-shadow:1px 1px 2px #c3cbd9,-1px -1px 2px #ffffff}
+.s3 .mrow .n{color:#5b6474}
+.s3 .mrow .track{background:#e3e8f0;border-radius:4px;box-shadow:inset 2px 2px 5px #c3cbd9,inset -2px -2px 5px #ffffff}
+.s3 .mrow .track b{border-radius:4px}
+.s3 .mrow .v{color:#4a5568;text-shadow:1px 1px 0 #ffffff}
+
+/* ============ 04 玻璃拟态 Glassmorphism ============ */
+.s4-stage{background:radial-gradient(130px 130px at 18% 28%,rgba(64,255,218,.4),transparent 70%),radial-gradient(180px 170px at 82% 72%,rgba(255,94,190,.42),transparent 70%),radial-gradient(140px 120px at 70% 15%,rgba(94,150,255,.38),transparent 70%),linear-gradient(135deg,#232b4a,#3a1f55)}
+.s4{background:linear-gradient(135deg,rgba(255,255,255,.20),rgba(255,255,255,.07));border:1px solid rgba(255,255,255,.38);border-radius:18px;box-shadow:0 10px 34px rgba(10,12,30,.42),inset 0 1px 0 rgba(255,255,255,.45);backdrop-filter:blur(10px)}
+.s4 .dot{background:#a7f3d0;box-shadow:0 0 8px rgba(167,243,208,.9)}
+.s4 .model{color:#ffffff;text-shadow:0 1px 4px rgba(10,12,30,.4)}
+.s4 .req{color:rgba(255,255,255,.72)}
+.s4 .big{color:#ffffff;text-shadow:0 2px 10px rgba(10,12,30,.45)}
+.s4 .cap{color:rgba(255,255,255,.66)}
+.s4 .right{border-left-color:rgba(255,255,255,.30)}
+.s4 .mi .k{color:rgba(255,255,255,.62)}
+.s4 .mi .v{color:#f2f6ff}
+.s4 .mtop{border-top-color:rgba(255,255,255,.22)}
+.s4 .mrow i{border-radius:3px}
+.s4 .mrow .n{color:#f5f8ff}
+.s4 .mrow .track{background:rgba(255,255,255,.20)}
+.s4 .mrow .v{color:#ffffff}
+
+/* ============ 05 黏土风 Claymorphism ============ */
+.s5-stage{background:#cfc3f5;padding:38px 34px}
+.s5{background:#f6f3ff;border:none;border-radius:24px;box-shadow:inset -8px -8px 16px #dccff5,inset 8px 8px 16px #ffffff,12px 16px 30px rgba(122,102,180,.38)}
+.s5 .dot{background:#ff8fab;box-shadow:inset -2px -2px 3px rgba(190,90,120,.45),inset 2px 2px 3px rgba(255,255,255,.8)}
+.s5 .model{color:#5b5470}
+.s5 .req{color:#a89ec9}
+.s5 .big{color:#5b5470;text-shadow:1px 1px 0 #ffffff}
+.s5 .cap{color:#b3a8d6}
+.s5 .right{border-left-color:#e4dcf7}
+.s5 .mi .k{color:#a89ec9}
+.s5 .mi .v{color:#5b5470;text-shadow:1px 1px 0 #ffffff}
+.s5 .mtop{border-top-color:#e4dcf7}
+.s5 .mrow i{border-radius:50%;width:10px;height:10px;box-shadow:inset -1px -2px 2px rgba(0,0,0,.18),inset 1px 1px 2px rgba(255,255,255,.65)}
+.s5 .mrow .n{color:#5b5470}
+.s5 .mrow .track{height:9px;border-radius:6px;background:#ece6fb;box-shadow:inset 2px 2px 4px #d9cef2,inset -2px -2px 4px #ffffff}
+.s5 .mrow .track b{border-radius:6px}
+.s5 .mrow .v{color:#5b5470;text-shadow:1px 1px 0 #ffffff}
+
+/* ============ 06 macOS 深色精致 ============ */
+.s6-stage{background:linear-gradient(145deg,#313136,#1b1b1e)}
+.s6{background:linear-gradient(180deg,rgba(54,56,63,.96),rgba(40,42,48,.96));border:1px solid rgba(255,255,255,.10);border-radius:16px;box-shadow:0 14px 40px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.07);font-family:'Segoe UI Variable','Segoe UI','Microsoft YaHei',sans-serif}
+.s6 .dot{background:#30d158;box-shadow:0 0 7px rgba(48,209,88,.65)}
+.s6 .model{color:#e8e8ed}
+.s6 .req{color:#98989d}
+.s6 .big{color:#f5f5f7;font-family:'Segoe UI Variable','Segoe UI',sans-serif;letter-spacing:0}
+.s6 .cap{color:#98989d}
+.s6 .right{border-left-color:rgba(255,255,255,.09)}
+.s6 .mi .k{color:#98989d}
+.s6 .mi .v{color:#d5d5da;font-family:'Segoe UI Variable','Segoe UI',Consolas,monospace}
+.s6 .mtop{border-top-color:rgba(255,255,255,.09)}
+.s6 .mrow i{border-radius:50%}
+.s6 .mrow .n{color:#d5d5da}
+.s6 .mrow .track{background:rgba(255,255,255,.11);height:5px;border-radius:3px}
+.s6 .mrow .track b{border-radius:3px}
+.s6 .mrow .v{color:#f5f5f7;font-family:'Segoe UI Variable','Segoe UI',Consolas,monospace}
+
+/* ============ 07 终端 CRT 极客 ============ */
+.s7-stage{background:#020402}
+.s7{background:#050a05;border:1px solid #1d5a31;border-radius:6px;box-shadow:inset 0 0 26px rgba(0,255,102,.07)}
+.s7::after{content:'';position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.30) 0 1px,transparent 1px 3px)}
+.s7 .dot{border-radius:1px;background:#4dff7c;box-shadow:0 0 7px rgba(77,255,124,.8)}
+.s7 .model{color:#b8ffcf;font-family:Consolas,'Microsoft YaHei',monospace}
+.s7 .req{color:#2f9e57}
+.s7 .big{color:#4dff7c;text-shadow:0 0 9px rgba(77,255,124,.55)}
+.s7 .cap{color:#2f9e57}
+.s7 .right{border-left-color:#123c22}
+.s7 .mi .k{color:#2f9e57;font-family:Consolas,'Microsoft YaHei',monospace}
+.s7 .mi .v{color:#d2ffe0;text-shadow:0 0 6px rgba(77,255,124,.35)}
+.s7 .mtop{border-top-color:#123c22}
+.s7 .mrow i{border-radius:1px}
+.s7 .mrow .n{color:#a8e6bb;font-family:Consolas,'Microsoft YaHei',monospace}
+.s7 .mrow .track{background:#123a22;border-radius:0}
+.s7 .mrow .track b{border-radius:0}
+.s7 .mrow .v{color:#d2ffe0}
+
+/* ============ 08 粗野主义 Brutalism ============ */
+.s8-stage{background:#ffd23f}
+.s8{background:#fffdf4;border:3px solid #111;border-radius:0;box-shadow:8px 8px 0 #111}
+.s8 .dot{border-radius:0;background:#ff4d00;border:2px solid #111;animation-name:bk}
+.s8 .model{color:#111;font-weight:800}
+.s8 .req{color:#111;font-weight:700}
+.s8 .big{color:#111;font-family:'Arial Black','Segoe UI',sans-serif;font-weight:900;letter-spacing:0}
+.s8 .cap{color:#111;font-weight:700;letter-spacing:3px}
+.s8 .right{border-left-color:#111}
+.s8 .mi .k{color:#111;font-weight:700}
+.s8 .mi .v{color:#111}
+.s8 .mtop{border-top:2px solid #111}
+.s8 .mrow i{border-radius:0;border:2px solid #111;background:#ff4d00!important}
+.s8 .mrow .n{color:#111;font-weight:700}
+.s8 .mrow .track{background:#fff;border:2px solid #111;border-radius:0;height:9px}
+.s8 .mrow .track b{border-radius:0;margin:1px}
+.s8 .mrow .v{color:#111}
+
+/* ============ 09 像素复古 8-bit ============ */
+.s9-stage{background:#12101f;background-image:linear-gradient(#1c1932 1px,transparent 1px),linear-gradient(90deg,#1c1932 1px,transparent 1px);background-size:16px 16px}
+.s9{background:#1a1c2c;border:3px solid #c2c3c7;border-radius:0;box-shadow:0 6px 0 rgba(0,0,0,.45)}
+.s9 .dot{border-radius:0;background:#00e436;box-shadow:2px 2px 0 #000;animation-timing-function:steps(2)}
+.s9 .model{color:#fff1e8;font-family:Consolas,'Microsoft YaHei',monospace;text-shadow:1px 1px 0 #000}
+.s9 .req{color:#83769c}
+.s9 .big{color:#fff1e8;text-shadow:2px 2px 0 #000}
+.s9 .cap{color:#83769c}
+.s9 .right{border-left-color:#2e3147}
+.s9 .mi .k{color:#83769c;font-family:Consolas,'Microsoft YaHei',monospace}
+.s9 .mi .v{color:#c2c3c7;text-shadow:1px 1px 0 #000}
+.s9 .mtop{border-top-color:#2e3147}
+.s9 .mrow i{border-radius:0;box-shadow:1px 1px 0 #000}
+.s9 .mrow .n{color:#c2c3c7;font-family:Consolas,'Microsoft YaHei',monospace;text-shadow:1px 1px 0 #000}
+.s9 .mrow .track{background:#2e3147;border-radius:0}
+.s9 .mrow .track b{border-radius:0}
+.s9 .mrow .v{color:#fff1e8;text-shadow:1px 1px 0 #000}
+
+/* ============ 10 蒸汽波 Synthwave ============ */
+.s10-stage{background:linear-gradient(160deg,#150a2b,#2c1050)}
+.s10{background:linear-gradient(165deg,rgba(43,16,80,.93),rgba(24,10,48,.93));border:1px solid rgba(255,43,214,.55);border-radius:14px;box-shadow:0 0 26px rgba(255,43,214,.30),inset 0 0 20px rgba(0,240,255,.07)}
+.s10::before{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(rgba(255,43,214,.09) 1px,transparent 1px),linear-gradient(90deg,rgba(255,43,214,.09) 1px,transparent 1px);background-size:24px 24px}
+.s10 .dot{background:#ff2bd6;box-shadow:0 0 9px rgba(255,43,214,.9)}
+.s10 .model{color:#f8e9ff}
+.s10 .req{color:#b78cff}
+.s10 .big{color:#00f0ff;text-shadow:0 0 11px rgba(0,240,255,.65)}
+.s10 .cap{color:#b78cff}
+.s10 .right{border-left-color:rgba(255,43,214,.35)}
+.s10 .mi .k{color:#b78cff}
+.s10 .mi .v{color:#f0e6ff;text-shadow:0 0 7px rgba(0,240,255,.35)}
+.s10 .mtop{border-top-color:rgba(255,43,214,.35)}
+.s10 .mrow i{border-radius:2px;box-shadow:0 0 5px currentColor;margin:0}
+.s10 .mrow .n{color:#e8d5ff}
+.s10 .mrow .track{background:rgba(255,43,214,.16)}
+.s10 .mrow .v{color:#f0e6ff}
+</style></head>
+<body>
+<h1>ZCode 用量悬浮窗 <span>· 10 种视觉皮肤</span></h1>
+<div class="sub">与上一轮《风格总览》（选信息形态，定稿数字翻牌横卡）不同：本轮为<b>同构换肤</b>——380×184 框体、大数字｜输入/输出/缓存｜模型 TOP3 的信息架构、呼吸灯/数值补间/飘字动画<b>全部不变</b>，只换配色、材质、字体与装饰语言。数据为真实截图（9月14日）。看中哪个，回复编号即可。</div>
+<div class="grid" id="grid"></div>
+<div class="foot">
+<b>如何选择</b>：回复「我要 N 号」即可；也支持混搭微调（例如「3 的质感 + 1 的配色」「10 但去掉网格」）。<br>
+<b>还原徽章</b>：QSS 直出 = 换色即可；QPainter 增强 = 渐变/多层阴影/扫描线，现有自绘架构直接可画；需 DWM = 要调 Windows 合成 API（Acrylic/Mica 真模糊）。所有皮肤的呼吸灯、数字滚动、+N 飘字、占比条过渡一律保留。
+</div>
+<script>
+const items=[
+ {s:'s1',n:'纸感浅色',t:'暖白纸底 + 细灰线 + 少量橙强调，Notion / 文档工具的安静气质，白天看不刺眼。',lv:'L1',lvName:'QSS 直出',pal:['#fdfcf9','#37352f','#d9730d','#2383e2'],note:'<b>落地</b>：纯换色即可；数字保留等宽；模型三色改为低饱和 橙/青绿/蓝。'},
+ {s:'s2',n:'电子墨水 E-Ink',t:'纸灰底、纯黑宋体、无彩色灰阶，像一块墨水屏日历。最克制、最耐看。',lv:'L1',lvName:'QSS 直出',pal:['#f2f0e9','#1c1c1c','#666','#bbb'],note:'<b>落地</b>：纯换色；中文换宋体、数字换衬线（Georgia）；三个模型用 黑/深灰/浅灰 区分。'},
+ {s:'s3',n:'新拟物 Neumorphism',t:'同色凸起 + 软阴影，控件像从面板里「长」出来的，轨道凹陷。柔和立体。',lv:'L2',lvName:'QPainter 增强',pal:['#e3e8f0','#4a5568','#6a7fdb','#4aa8a0'],note:'<b>落地</b>：QPainter 每个元素画两遍（左上高光 + 右下暗影）；占比条画凹陷槽。'},
+ {s:'s4',n:'玻璃拟态 Glassmorphism',t:'半透明白玻璃 + 亮边高光，桌面壁纸从卡上透出来。演示页底下放了彩色斑块模拟桌面。',lv:'L3',lvName:'需 DWM',pal:['rgba 白','#ffffff','#7df0cd','#82c8ff'],note:'<b>落地</b>：窗口半透明 + Windows DWM Acrylic/Mica 真模糊（Win11 原生；Win10 用 SetWindowCompositionAttribute 近似）。'},
+ {s:'s5',n:'黏土风 Claymorphism',t:'胖圆角 + 内外双层软阴影 + 糖果色，元素像捏出来的黏土。可爱、松软、无攻击性。',lv:'L2',lvName:'QPainter 增强',pal:['#f6f3ff','#5b5470','#ff8fab','#5fd4a8'],note:'<b>落地</b>：多层内外阴影 QPainter 可画；圆角加大到 22~24；色点改球体带高光。'},
+ {s:'s6',n:'macOS 深色精致',t:'深灰渐变面板 + 高光描边 + 大柔影，苹果系统设置的质感。克制但比现在「贵」。',lv:'L2',lvName:'QPainter 增强',pal:['#282a30','#f5f5f7','#30d158','#64d2ff'],note:'<b>落地</b>：渐变底 + 1px 内高光 + 柔影，QPainter 直接可画；模型三色换 iOS 系统色。'},
+ {s:'s7',n:'终端 CRT 极客',t:'纯黑底 + 荧光绿等宽 + 扫描线 + 辉光，老式终端机。写代码的人看了会说「就是这个」。',lv:'L2',lvName:'QPainter 增强',pal:['#050a05','#4dff7c','#2f9e57','#00e436'],note:'<b>落地</b>：等宽字体全套 + 循环画 1px 扫描线；辉光用多层低透明重绘。'},
+ {s:'s8',n:'粗野主义 Brutalism',t:'直角 + 3px 硬黑边 + 硬投影 + 撞色，海报感。最有个性，绝不「千篇一律的圆角卡片」。',lv:'L1',lvName:'QSS 直出',pal:['#fffdf4','#111111','#ff4d00','#2b50ff'],note:'<b>落地</b>：零渐变零圆角，最好实现；模型行改「黑边框白轨道」。'},
+ {s:'s9',n:'像素复古 8-bit',t:'深紫夜底 + 硬边框 + 像素硬阴影 + 限色板（PICO-8 色系），电子游戏机氛围。',lv:'L2',lvName:'字体需内嵌',pal:['#1a1c2c','#fff1e8','#00e436','#29adff'],note:'<b>落地</b>：形状纯色直出；要地道需内嵌像素字体 ttf（如 Zpix / Fusion Pixel，约 1~2MB），否则 Consolas 粗体近似。'},
+ {s:'s10',n:'蒸汽波 Synthwave',t:'深紫底 + 霓虹粉青 + 发光网格，80 年代合成器美学。夜间最出效果，存在感最强。',lv:'L2',lvName:'QPainter 增强',pal:['#1b0b33','#00f0ff','#ff2bd6','#ffe74c'],note:'<b>落地</b>：渐变底 + 网格线 + 辉光重绘，QPainter 可画；呼吸灯换霓虹粉。'},
+];
+const DOM=(s)=>`
+  <div class="top"><span class="dot"></span><span class="model">今日 · 9月14日 周一</span><span class="req">732 次</span></div>
+  <div class="main">
+    <div class="left"><div class="big">1.51亿</div><div class="cap">今日 TOKENS</div></div>
+    <div class="right">
+      <div class="mi"><span class="k">输入</span><span class="v">1.51亿</span></div>
+      <div class="mi"><span class="k">输出</span><span class="v">49.4万</span></div>
+      <div class="mi"><span class="k">缓存</span><span class="v">1.46亿 (97%)</span></div>
+    </div>
+  </div>
+  <div class="mtop">
+    <div class="mrow"><i style="background:var(--m1)"></i><span class="n">GLM-5.3-Flash</span><span class="track"><b style="width:74%;background:var(--m1)"></b></span><span class="v">1.04亿</span></div>
+    <div class="mrow"><i style="background:var(--m2)"></i><span class="n">deepseek-v4-fla…</span><span class="track"><b style="width:25%;background:var(--m2)"></b></span><span class="v">4052.1万</span></div>
+    <div class="mrow"><i style="background:var(--m3)"></i><span class="n">GLM-5.3</span><span class="track"><b style="width:4%;background:var(--m3)"></b></span><span class="v">696.8万</span></div>
+  </div>`;
+/* 每皮肤的三模型强调色 */
+const MC={s1:['#d9730d','#0f7b6c','#2383e2'],s2:['#26251f','#6e6b5e','#b5b1a2'],
+ s3:['#6a7fdb','#4aa8a0','#d08b5b'],s4:['#7df0cd','#82c8ff','#ffc46b'],
+ s5:['#ff8fab','#5fd4a8','#7cb8ff'],s6:['#30d158','#64d2ff','#ff9f0a'],
+ s7:['#57ff9a','#45c8ff','#ffc857'],s8:['#ff4d00','#2b50ff','#f5b700'],
+ s9:['#00e436','#29adff','#ffa300'],s10:['#ff2bd6','#00f0ff','#ffe74c']};
+const g=document.getElementById('grid');
+items.forEach((it,idx)=>{
+ const i=idx+1;
+ const cell=document.createElement('div');cell.className='cell';
+ const lvCls=it.lv==='L3'?' l3':(it.lv==='L2'?' l2':'');
+ cell.innerHTML=`
+  <div class="head"><span class="no">${String(i).padStart(2,'0')}</span><span class="nm">${it.n}</span><span class="lv${lvCls}">${it.lvName} · ${it.lv}</span></div>
+  <div class="trait">${it.t}</div>
+  <div class="stage ${it.s}-stage"><div class="win ${it.s}" style="--m1:${MC[it.s][0]};--m2:${MC[it.s][1]};--m3:${MC[it.s][2]}">${DOM(it.s)}</div></div>
+  <div class="swatches">${it.pal.map(c=>`<i style="background:${c}"></i>`).join('')}<span class="mono">${it.pal.join(' / ').replace(/rgba 白/, 'rgba(255,255,255,·)')}</span></div>
+  <div class="note">${it.note}</div>`;
+ g.appendChild(cell);
+});
+</script></body></html>
