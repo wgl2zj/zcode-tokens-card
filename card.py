@@ -90,7 +90,9 @@ class FloatCard(QWidget):
     """380x184 无边框置顶横卡。数据入口:set_data / set_error。"""
 
     def __init__(self):
-        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        # Qt.Tool:不进任务栏、不进 Alt-Tab,仅托盘交互(用户要求)
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+                         | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(T.CARD_W, T.CARD_H)
 
@@ -222,17 +224,23 @@ class FloatCard(QWidget):
         p.setPen(QPen(_color(T.C_DIVIDER), 1))
         p.drawLine(DIVIDER_V_X, DIVIDER_V_Y[0],
                    DIVIDER_V_X, DIVIDER_V_Y[1])
-        # 三列:标签 | 数值居中 | 右侧飘字
+        # 三列:标签 | 数值居中 | 右侧飘字;缓存行附加当日占比
         for i, key in enumerate(("input", "output", "cache")):
             cy = MI_ROW_CY[i]
             p.setPen(_color(T.C_TEXT_LABEL))
             p.setFont(_font(T.F_UI, T.FS_MI_K))
             p.drawText(QRect(MI_LABEL_X, cy - 9, 30, 18),
                        Qt.AlignLeft | Qt.AlignVCenter, MI_KEYS[i])
+            val = self.tw[key].value(now)
+            text = S.cny(val)
+            if key == "cache":
+                tot = self.tw["total"].value(now)
+                if tot > 0:
+                    text = f"{text} ({round(val / tot * 100)}%)"
             p.setPen(_color(T.C_TEXT_VALUE))
             p.setFont(_font(T.F_MONO, T.FS_MI_V, True))
             p.drawText(QRect(MI_VALUE_X, cy - 9, MI_VALUE_W, 18),
-                       Qt.AlignCenter, S.cny(self.tw[key].value(now)))
+                       Qt.AlignCenter, text)
             if self.inc_mi[i]:
                 if not self._draw_rise(p, self.inc_mi[i], now,
                                        T.INC2_RISE_MS,
