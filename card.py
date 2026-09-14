@@ -94,7 +94,8 @@ class FloatCard(QWidget):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
                          | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(T.CARD_W, T.CARD_H)
+        # 窗口比卡片大一圈(SHADOW_PAD):四周透明区用于画落地投影
+        self.setFixedSize(T.WIN_W, T.WIN_H)
 
         self.label = S.today_label()
         self.reqs_text = "读取中…"
@@ -166,10 +167,25 @@ class FloatCard(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.TextAntialiasing)
+        # 平移到卡片坐标系:左上透明边距留给投影
+        p.translate(T.SHADOW_PAD, T.SHADOW_PAD)
+        self._draw_shadow(p)
         self._draw_card(p)
         self._draw_top(p, now)
         self._draw_main(p, now)
         self._draw_models(p, now)
+
+    def _draw_shadow(self, p: QPainter) -> None:
+        """落地投影:多层圆角矩形向外扩、alpha 递减,贴近设计稿 5% 柔影。"""
+        p.setPen(Qt.NoPen)
+        for i in range(6, 0, -1):
+            expand = i * 2.2
+            alpha = T.A_SHADOW_MAX - (i - 1) * 0.007
+            p.setBrush(_color(T.C_SHADOW, alpha))
+            p.drawRoundedRect(
+                QRectF(-expand, -expand + 1, T.CARD_W + expand * 2,
+                       T.CARD_H + expand * 2),
+                T.RADIUS + expand, T.RADIUS + expand)
 
     def _draw_card(self, p: QPainter) -> None:
         path = QPainterPath()

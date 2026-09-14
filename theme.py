@@ -6,9 +6,15 @@
 """
 
 # —— 画布 ——
-CARD_W, CARD_H = 356, 192
+CARD_W, CARD_H = 356, 192      # 卡片内容尺寸(视觉边界)
+SHADOW_PAD = 14                # 窗口四周透明边距:容纳落地投影的绘制空间
+WIN_W, WIN_H = CARD_W + SHADOW_PAD * 2, CARD_H + SHADOW_PAD * 2
 RADIUS = 10
 BORDER_W = 1
+
+# —— 投影 ——
+C_SHADOW = "#37352f"           # 投影色(暖灰黑,随卡片主文字色)
+A_SHADOW_MAX = 0.047           # 贴卡处 alpha,向外逐层递减(贴近设计稿 5% 柔影)
 
 # —— 颜色(纸感全实色,无需半透明件) ——
 C_CARD_BG = "#fdfcf9"          # 卡片底(暖白纸)

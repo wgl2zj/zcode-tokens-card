@@ -13,7 +13,7 @@ import card as card_mod
 import config as cfg
 import reader
 import stats as S
-from theme import CARD_H, CARD_W, POLL_MS
+from theme import POLL_MS, WIN_H, WIN_W
 
 SERVER_NAME = "zcode-tokens-float-card"
 FOCUS_CHECK_MS = 400
@@ -129,13 +129,13 @@ class App:
                 or not self._on_screen(x, y):
             screen = self.card.screen().availableGeometry()
             # 默认落位:主屏右下角(任务栏上方),贴近 ZCode 最大化时的右下空白区
-            x = screen.right() - CARD_W - 20
-            y = screen.bottom() - CARD_H - 14
+            x = screen.right() - WIN_W - 20
+            y = screen.bottom() - WIN_H - 14
         self.card.move(x, y)
 
     @staticmethod
     def _on_screen(x: int, y: int) -> bool:
-        wr = QRect(x, y, CARD_W, CARD_H)
+        wr = QRect(x, y, WIN_W, WIN_H)
         return any(s.geometry().intersects(wr) for s in QApplication.screens())
 
     # —— 托盘 / 生命周期 ——
