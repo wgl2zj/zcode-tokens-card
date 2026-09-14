@@ -57,5 +57,10 @@ BAR_MS = 900                  # 占比条过渡
 BREATH_MS = 2400              # 呼吸灯周期
 FRAME_MS = 33                 # 重绘帧间隔(~30fps)
 
+# —— 增量摊放(drip.py):每轮到账用量在窗口内分多跳释放,数字常跳、落后有界 ——
+SMOOTH_WINDOW_MS = 30_000     # 摊放窗口:单批增量至多 30s 放完(显示落后上界)
+SMOOTH_TICK_MIN_MS = 3_000    # 释放节拍下限
+SMOOTH_TICK_MAX_MS = 4_000    # 释放节拍上限(窗口内按上限折算跳数保证放完)
+
 # —— 数据源 ——
 DB_PATH = None                # 由 reader 模块按用户主目录解析,此处不留路径常量

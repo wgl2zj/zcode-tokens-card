@@ -1,6 +1,7 @@
 """横卡窗口:QPainter 全量自绘(布局、动画、拖动交互)。
 
 纸感浅色皮肤(选型稿 01 号):356x192,暖白纸底 + 细灰线 + 橙强调。
+数值显示走 drip 摊放:每轮到账增量在 30s 窗口内 3~4s 一跳分步释放。
 """
 
 import math
@@ -11,6 +12,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
 import config as cfg
+import drip
 import stats as S
 import theme as T
 
@@ -101,6 +103,10 @@ class FloatCard(QWidget):
         self.reqs_text = "读取中…"
         self.error_text = ""
         self.tw = {k: _Tween(0.0) for k in TWEEN_KEYS}
+        self._shown: dict[str, float] = {}    # 已释放到的显示目标
+        self._last_real: dict[str, float] = {}  # 上次轮询真实值(算增量用)
+        self._sched = drip.DripScheduler(
+            T.SMOOTH_WINDOW_MS, T.SMOOTH_TICK_MIN_MS, T.SMOOTH_TICK_MAX_MS)
         self.models: list[tuple[str, int]] = []
         self.bar_w = [0.0, 0.0, 0.0]
         self.inc_big = None            # (text, t0)
@@ -113,9 +119,17 @@ class FloatCard(QWidget):
         self._frame_timer.start(T.FRAME_MS)
 
     # —— 数据入口 ——
+    @staticmethod
+    def _now_ms() -> float:
+        """单调毫秒时钟;独立成方法便于测试注入假时钟。"""
+        return time.monotonic() * 1000.0
+
     def set_data(self, d: dict) -> None:
-        """d:{"count","input","output","cache","total","models":[(名称,总量)]}。"""
-        now = time.monotonic()
+        """d:{"count","input","output","cache","total","models":[(名称,总量)]}。
+
+        首帧直接显示真实值;此后每轮把增量交给 drip 池,由帧循环分步释放,
+        显示值最多落后真实值一个摊放窗口(SMOOTH_WINDOW_MS)。
+        """
         models = d.get("models", [])
         values = {
             "total": d["total"], "input": d["input"], "output": d["output"],
@@ -128,17 +142,15 @@ class FloatCard(QWidget):
             for k, tw in self.tw.items():
                 tw.snap(values[k])
             self.bar_w = list(self._bar_targets())
+            self._shown = dict(values)
+            self._last_real = dict(values)
             self._first = False
         else:
-            inc = int(values["total"] - self.tw["total"].end())
-            deltas = {k: values[k] - self.tw[k].end() for k in values}
-            for k, tw in self.tw.items():
-                tw.to(values[k])
-            if inc > 0:
-                self.inc_big = (f"+{inc:,}", now)
-            for i, key in enumerate(("input", "output", "cache")):
-                if deltas[key] >= 1:
-                    self.inc_mi[i] = (f"+{deltas[key]:,.0f}", now)
+            delta = {k: max(0.0, values[k] - self._last_real[k])
+                     for k in values}
+            self._last_real = dict(values)
+            if any(delta.values()):
+                self._sched.add(delta, self._now_ms())
         self.models = models
         self.reqs_text = f"{d['count']} 次"
         self.error_text = ""
@@ -156,10 +168,26 @@ class FloatCard(QWidget):
 
     # —— 帧循环 ——
     def _on_frame(self) -> None:
+        self._drip()
         targets = self._bar_targets()
         for i in range(3):
             self.bar_w[i] += (targets[i] - self.bar_w[i]) * 0.12
         self.update()
+
+    def _drip(self) -> None:
+        """释放池中增量:每跳把 tween 目标推进一小步并触发对应飘字。"""
+        now_ms = self._now_ms()
+        while self._sched.due(now_ms):
+            chunk = self._sched.release(now_ms)
+            now = time.monotonic()
+            if chunk.get("total", 0.0) >= 1:
+                self.inc_big = (f"+{chunk['total']:,.0f}", now)
+            for i, key in enumerate(("input", "output", "cache")):
+                if chunk.get(key, 0.0) >= 1:
+                    self.inc_mi[i] = (f"+{chunk[key]:,.0f}", now)
+            for k, val in chunk.items():
+                self._shown[k] += val
+                self.tw[k].to(self._shown[k])
 
     # —— 绘制 ——
     def paintEvent(self, ev) -> None:
