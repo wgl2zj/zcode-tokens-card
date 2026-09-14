@@ -99,7 +99,6 @@ class FloatCard(QWidget):
         # 窗口比卡片大一圈(SHADOW_PAD):四周透明区用于画落地投影
         self.setFixedSize(T.WIN_W, T.WIN_H)
 
-        self.label = S.today_label()
         self.reqs_text = "读取中…"
         self.error_text = ""
         self.tw = {k: _Tween(0.0) for k in TWEEN_KEYS}
@@ -107,7 +106,7 @@ class FloatCard(QWidget):
         self._last_real: dict[str, float] = {}  # 上次轮询真实值(算增量用)
         self._sched = drip.DripScheduler(
             T.SMOOTH_TICK_MIN_MS, T.SMOOTH_TICK_MAX_MS,
-            T.SMOOTH_MAX_DURATION_MS)
+            T.SMOOTH_MAX_DURATION_MS, T.SMOOTH_JITTER_MIN, T.SMOOTH_JITTER_MAX)
         self.models: list[tuple[str, int]] = []
         self.bar_w = [0.0, 0.0, 0.0]
         self.inc_big = None            # (text, t0)
@@ -146,6 +145,15 @@ class FloatCard(QWidget):
             self._shown = dict(values)
             self._last_real = dict(values)
             self._first = False
+        elif values["total"] < self._last_real["total"]:
+            # 当日累计回退 = 跨零点(或上游修正):清池并把显示直接对齐新值,
+            # 否则负增量被钳零、显示会永远冻结在昨天的量上
+            self._sched.reset()
+            for k, tw in self.tw.items():
+                tw.snap(values[k])
+            self.bar_w = list(self._bar_targets())
+            self._shown = dict(values)
+            self._last_real = dict(values)
         else:
             delta = {k: max(0.0, values[k] - self._last_real[k])
                      for k in values}
@@ -237,12 +245,12 @@ class FloatCard(QWidget):
         p.setBrush(_color(core, a))
         p.drawEllipse(QRectF(TOP_DOT[0], TOP_DOT[1],
                              TOP_DOT[2], TOP_DOT[3]))
-        # 日期标签 + 24h 时钟(重绘帧持续触发,时间每秒自然刷新)
+        # 日期标签(每帧按当前日期生成,跨零点自动换日) + 24h 时钟
         p.setPen(_color(T.C_TEXT_HEAD))
         p.setFont(_font(T.F_UI, T.FS_HEAD, weight=QFont.DemiBold))
         p.drawText(QRect(TOP_TEXT_X, 12, 260, 18),
                    Qt.AlignLeft | Qt.AlignVCenter,
-                   f"{self.label}  {time.strftime('%H:%M')}")
+                   f"{S.today_label()}  {time.strftime('%H:%M')}")
         # 次数/状态
         p.setPen(_color(T.C_TEXT_DIM if not self.error_text else T.C_ERROR))
         p.setFont(_font(T.F_MONO, T.FS_REQ))

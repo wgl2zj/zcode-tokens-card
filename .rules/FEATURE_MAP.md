@@ -112,12 +112,14 @@
 1. **按时长摊放**：单段摊放时长 = 该段产生间隔（首段无参照按一个节拍 4s），封顶 `SMOOTH_MAX_DURATION_MS`（10 分钟）；段内按剩余时长均分多跳，过期一次清空。出处：`drip.py:add/release`（`tests/test_stream.py::test_duration_matches_arrival_gap`、`test_max_duration_cap` 锁住）。
 2. **守恒与并行**：各段独立成池、独立期限，同跳合并释放、先到期先放完；任意时刻 已释放+在池 = 已入池。出处：`drip.py:release`（`test_conservation_parallel_batches` 锁住）。
 3. **落后有界**：显示不超真实；到账停止后 max(末段时长， 节拍) 内追平。出处：`drip.py` 期限机制（`test_display_lag_bounded_and_catches_up` 锁住）。
-4. **段内等比**：单段多字段按剩余量等比释放；多段合计不保证全局等比。出处：`drip.py:release`（`test_fields_released_proportionally` 锁住）。
+4. **段内等比**：单段多字段同跳共用抖动因子、按剩余量等比释放；多段合计不保证全局等比。出处：`drip.py:_plan`（`test_fields_released_proportionally` 锁住）。
+5. **相邻跳必异**：每跳释放量 = 均分 × 抖动(0.7~1.3)，total 与上一跳取整撞值时换抖动重抽(至多 3 次)；末跳/过期不抖动、一次清空；`reset()` 清全部池(跨天时由 card 触发)。出处：`drip.py:release/_plan/reset`（`test_adjacent_releases_differ`、`test_reset_drops_all_pending` 锁住）。
 
 ### 反直觉/易误解（踩坑预警）
 
 - **零增量不入池也不推进到账时刻**：间隔跨过无新增的轮询继续累计，直到真正有记录的那次。
 - **释放量随期限逼近变大**：节拍固定但每次释放量按剩余时长折算，不是恒定等分。
+- **末跳与过期跳不抖动**：抖动只作用于还有后续跳的池，"期限到即清空"语义不受抖动影响。
 
 ---
 
@@ -135,13 +137,13 @@
 
 1. **皮肤为纸感浅色**（选型稿 `design/皮肤总览.html` 01 号）：暖白纸底 `#fdfcf9`、细灰线描边、橙色强调、四周落地柔影；窗口比卡片大一圈（四周 14px 透明边距画投影），色值一律取自 `theme.py`，布局坐标常量集中在 `card.py` 顶部。出处：`card.py:_draw_card/_draw_shadow`、`theme.py`。
 2. **窗体 356×192**：默认落位主屏右下角（任务栏上方，右边距 20、底边距 14），用户拖动后位置写入 `state.json` 并按原位恢复。出处：`main.py:_restore_pos`。
-3. **增量摊放**：每轮轮询到账的增量进 `drip` 池，按其产生间隔、2~4s 一跳分步释放为显示值（单段封顶 10 分钟）；显示全程 ≤ 真实值，到账停止后追平；首帧直接显示真实值不摊放。出处：`card.py:set_data/_drip`、`drip.py`（`tests/test_stream.py` 锁住）。
+3. **增量摊放**：每轮轮询到账的增量进 `drip` 池，按其产生间隔、2~4s 一跳分步释放为显示值（单段封顶 10 分钟）；显示全程 ≤ 真实值，到账停止后追平；首帧直接显示真实值不摊放；当日累计回退（跨零点/上游修正）时清池并立即对齐新一天真实值，旧量不再放出。出处：`card.py:set_data/_drip`、`drip.py`（`tests/test_stream.py` 锁住）。
 4. **增量飘字**：摊放调度每释放一跳，大数字右侧与三列右侧各自冒出「+释放量」上浮淡出；首帧与零释放时不飘。出处：`card.py:_drip/_draw_rise`。
 5. **三列完整数字**：输入/输出/缓存显示千分位完整数字（左对齐、无中文单位），缓存行占比小字紧跟数字右侧（`FS_PCT`）；标签列贴近竖分隔线（x=200），数值左对齐区 224~338。出处：`card.py:_draw_main`、`stats.py:full`。
 6. **占比条**：宽度按当日总量归一平滑过渡，最小 2%；不足三个模型时多余行不渲染。出处：`card.py:_bar_targets/_draw_models`。
 7. **拖动**：左键拖动移动窗口，松开后位置写入 `state.json`。出处：`card.py:mouse*Event`。
 8. **异常态独立配色**：数据源异常时呼吸灯与状态文字变红橙 `C_ERROR`，与第三模型蓝色区分；异常期间摊放池与显示保持不动。出处：`card.py:_draw_top/set_error`。
-9. **顶行时钟**：日期标签右侧显示 24 小时制 `HH:MM`，随重绘帧每秒自然刷新（时间取绘制时刻系统时钟，非数据时间）。出处：`card.py:_draw_top`。
+9. **顶行日期与时钟**：标签为「今日 · M月D日 周X + 24 小时制 HH:MM」，每帧按当前时间生成——跨零点自动换日、时钟每秒刷新。出处：`card.py:_draw_top`。
 
 ### 已知待修问题
 

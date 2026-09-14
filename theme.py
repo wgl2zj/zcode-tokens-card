@@ -62,6 +62,8 @@ FRAME_MS = 33                 # 重绘帧间隔(~30fps)
 SMOOTH_TICK_MIN_MS = 2_000     # 释放节拍下限
 SMOOTH_TICK_MAX_MS = 4_000     # 释放节拍上限(按时长上限折算跳数保证放完)
 SMOOTH_MAX_DURATION_MS = 600_000  # 单段摊放时长封顶 10 分钟(隔夜不无限拖)
+SMOOTH_JITTER_MIN = 0.7        # 每跳释放量抖动下限(×均分值),防相邻跳重样
+SMOOTH_JITTER_MAX = 1.3        # 每跳释放量抖动上限
 
 # —— 数据源 ——
 DB_PATH = None                # 由 reader 模块按用户主目录解析,此处不留路径常量

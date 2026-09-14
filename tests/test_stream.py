@@ -44,7 +44,7 @@ def test_duration_matches_arrival_gap():
     assert 0.0 < mid["total"] < 60_000.0            # 渐进中,未放完
     tail, count2 = drive(s, 100_000.0, 30_000.0)    # 推过 deadline(120s)
     assert abs(mid["total"] + tail["total"] - 60_000.0) < 0.01
-    assert count + count2 >= 15                     # 60s/4s 至少 15 跳
+    assert count + count2 >= 10                     # 40s 内节拍 2~4s 至少 10 跳
 
 
 def test_conservation_parallel_batches():
@@ -101,7 +101,7 @@ def test_max_duration_cap():
 
 
 def test_fields_released_proportionally():
-    """单段多字段:一次释放保持段内字段比例。"""
+    """单段多字段:一次释放保持段内字段比例(同跳共用抖动因子)。"""
     s = drip.DripScheduler(tick_min_ms=2_000, tick_max_ms=4_000,
                            max_duration_ms=600_000)
     s.add({"total": 1_000.0, "input": 100.0, "output": 900.0}, 0.0)
@@ -109,6 +109,40 @@ def test_fields_released_proportionally():
     chunk = s.release(4_000.0)
     assert abs(chunk["total"] / chunk["input"] - 10.0) < 1e-6
     assert abs(chunk["total"] / chunk["output"] - 10.0 / 9.0) < 1e-6
+
+
+def test_adjacent_releases_differ():
+    """相邻两跳的 total 释放量取整后必不相同(抖动+撞值重抽)。"""
+    s = drip.DripScheduler(tick_min_ms=2_000, tick_max_ms=4_000,
+                           max_duration_ms=600_000)
+    s.add({"total": 1_000.0}, 0.0)                  # 首段默认 4s
+    drive(s, 0.0, 6_000.0)
+    s.add({"total": 1_000_000.0}, 60_000.0)         # 间隔 60s → 时长 60s
+    outs = []
+    t = 60_000.0
+    while t < 126_000.0:
+        if s.due(t):
+            val = round(s.release(t).get("total", 0.0))
+            if val:
+                outs.append(val)
+        t += 500.0
+    assert len(outs) >= 3
+    assert len(set(outs)) == len(outs)              # 互不相同
+
+
+def test_reset_drops_all_pending():
+    """跨天重置:清空池与排程,旧量不再放出。"""
+    s = drip.DripScheduler(tick_min_ms=2_000, tick_max_ms=4_000,
+                           max_duration_ms=600_000)
+    s.add({"total": 100_000.0}, 0.0)
+    drive(s, 0.0, 6_000.0)                          # 首段放完
+    s.add({"total": 50_000.0}, 10_000.0)            # 10s 时长段,在池
+    assert s.pending()
+    s.reset()
+    assert s.pending() == {}
+    assert not s.due(20_000.0)
+    released, _ = drive(s, 20_000.0, 30_000.0)
+    assert released == {}
 
 
 def test_empty_and_zero_delta_are_inert():
