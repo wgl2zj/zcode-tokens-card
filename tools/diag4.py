@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication
 
 import main as app_mod
@@ -25,8 +25,10 @@ def main() -> None:
 
     def check() -> None:
         exe = app_mod.foreground_process_name().lower()
-        report("前台进程是 ZCode.exe", exe.endswith("zcode.exe"))
-        report("跟随开启 → 卡片显示", a.card.isVisible())
+        zcode_fg = exe.endswith("zcode.exe")
+        vis = a.card.isVisible()
+        print("前台进程:", exe or "(无/桌面)")
+        report("跟随联动: 显隐与前台一致", vis == zcode_fg)
         report("任务栏隐藏(Qt.Tool)",
                bool(a.card.windowFlags() & Qt.Tool))
         a.card.grab().save("shot_cache.png")
