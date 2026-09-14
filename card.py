@@ -269,8 +269,8 @@ class FloatCard(QWidget):
         p.setPen(QPen(_color(T.C_DIVIDER), 1))
         p.drawLine(DIVIDER_V_X, DIVIDER_V_Y[0],
                    DIVIDER_V_X, DIVIDER_V_Y[1])
-        # 三列:标签 | 完整千分位数字(右对齐,小数额跳动可感知) | 右侧飘字;
-        # 缓存行数字右侧缀占比小字
+        # 三列:标签 | 完整千分位数字(左对齐,小数额跳动可感知) | 右侧飘字;
+        # 缓存行占比小字紧跟数字右侧
         for i, key in enumerate(("input", "output", "cache")):
             cy = MI_ROW_CY[i]
             p.setPen(_color(T.C_TEXT_LABEL))
@@ -280,24 +280,20 @@ class FloatCard(QWidget):
             val = self.tw[key].value(now)
             text = S.full(val)
             rect = QRect(MI_VALUE_X, cy - 9, MI_VALUE_W, 18)
-            pct = ""
+            p.setPen(_color(T.C_TEXT_VALUE))
+            p.setFont(_font(T.F_MONO, T.FS_MI_V, True))
+            num_w = p.fontMetrics().horizontalAdvance(text)
+            p.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, text)
             if key == "cache":
                 tot = self.tw["total"].value(now)
                 if tot > 0:
                     pct = f"{round(val / tot * 100)}%"
-            if pct:
-                p.setFont(_font(T.F_UI, T.FS_PCT))
-                pct_w = p.fontMetrics().horizontalAdvance(pct)
-                num_rect = rect.adjusted(0, 0, -pct_w - 3, 0)
-            else:
-                pct_w, num_rect = 0, rect
-            p.setPen(_color(T.C_TEXT_VALUE))
-            p.setFont(_font(T.F_MONO, T.FS_MI_V, True))
-            p.drawText(num_rect, Qt.AlignRight | Qt.AlignVCenter, text)
-            if pct:
-                p.setPen(_color(T.C_TEXT_LABEL))
-                p.setFont(_font(T.F_UI, T.FS_PCT))
-                p.drawText(rect, Qt.AlignRight | Qt.AlignVCenter, pct)
+                    p.setPen(_color(T.C_TEXT_LABEL))
+                    p.setFont(_font(T.F_UI, T.FS_PCT))
+                    p.drawText(
+                        QRect(rect.x() + num_w + 3, rect.y(),
+                              rect.width() - num_w - 3, rect.height()),
+                        Qt.AlignLeft | Qt.AlignVCenter, pct)
             if self.inc_mi[i]:
                 if not self._draw_rise(p, self.inc_mi[i], now,
                                        T.INC2_RISE_MS,
