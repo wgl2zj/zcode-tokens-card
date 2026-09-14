@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<!-- ZCode 用量悬浮窗 · 10 风格设计稿总览。每卡为 iframe 实时预览(含增长动画) -->
+<html lang="zh"><head><meta charset="utf-8">
+<title>ZCode 用量悬浮窗 · 10 风格设计稿</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#101216;color:#e8eaed;font-family:'Segoe UI','Microsoft YaHei',sans-serif;padding:34px 40px}
+h1{font-size:22px;font-weight:700}
+h1 span{color:#3ddc84}
+.sub{color:#8b929c;font-size:13px;margin-top:6px;line-height:1.7}
+.rules{margin-top:14px;background:#171a20;border:1px solid #262a31;border-radius:10px;padding:14px 18px;font-size:12.5px;color:#a8b0ba;line-height:1.9}
+.rules b{color:#d8dde4}
+.rules .tag{display:inline-block;background:#20252d;border:1px solid #303743;border-radius:5px;padding:0 8px;margin:0 2px;font-size:11px;font-family:Consolas,monospace}
+.grid{margin-top:22px;display:grid;grid-template-columns:repeat(5,1fr);gap:16px}
+.card{background:#171a20;border:1px solid #262a31;border-radius:12px;overflow:hidden;transition:transform .15s,border-color .15s}
+.card:hover{transform:translateY(-3px);border-color:#3ddc84}
+.thumb{height:250px;background:#17191c;display:flex;align-items:center;justify-content:center;overflow:hidden;pointer-events:none}
+.thumb iframe{width:340px;height:500px;transform:scale(.62);border:0;flex:none;margin-top:-46px}
+.meta{padding:10px 12px 12px;border-top:1px solid #262a31}
+.meta .n{font-size:13px;font-weight:700}
+.meta .n em{font-style:normal;color:#3ddc84;font-family:Consolas,monospace;margin-right:6px}
+.meta .core{font-size:11px;color:#8b929c;margin-top:3px}
+.meta .lv{display:inline-block;margin-top:7px;font-size:10.5px;font-family:Consolas,monospace;background:#1c2b22;color:#3ddc84;border:1px solid #2b4433;border-radius:5px;padding:1px 8px}
+.meta .lv.l3{background:#2b2333;color:#c99bff;border-color:#44335c}
+.foot{margin-top:24px;color:#5f6672;font-size:12px;line-height:1.8}
+</style></head>
+<body>
+<h1>ZCode 用量悬浮窗 <span>· 10 风格设计稿</span></h1>
+<div class="sub">共同目标：让 <b>tokens 的增长可直接感知</b> —— 数字滚动、液位上涨、环充满、升级、集星、心电图、热力墙、指针、桌宠。每页均为<b>动态演示</b>（模拟每 1.8s 一次调用），实际程序轮询 <code style="color:#3ddc84">db.sqlite · model_usage</code> 取真值。</div>
+<div class="rules">
+  <b>还原性公约</b>：所有效果限定桌面 GUI 可实现范围，不使用浏览器专属特性（backdrop-filter 模糊 / WebGL / 复杂 transform 链）。<br>
+  <span class="tag">L1 通用</span>布局、纯色、圆角、字体 —— 任何栈直接实现　
+  <span class="tag">L2 动画</span>数字补间 / 条形填充 / canvas 波形、弧线、液面 —— Electron 原生 CSS；Qt QTimer+QPainter；WPF Storyboard　
+  <span class="tag">L3 异形/透明</span>悬浮球透明窗 —— Electron / Tauri / WPF 原生；tkinter 需 -transparentcolor 变通
+</div>
+<div class="grid" id="grid"></div>
+<div class="foot">窗体规格：300×400 无边框置顶悬浮（10 号为 240×240 球体）。双击各 html 文件查看全尺寸动态效果。</div>
+<script>
+const items=[
+ ['01-数字翻牌.html','数字翻牌','大数字滚动 + 增量飘字','L2'],
+ ['02-能量罐.html','能量罐','液位=今日用量,调用即上涨','L2'],
+ ['03-充电环.html','充电环','环逐步充满 + 调用脉冲发光','L2'],
+ ['04-经验条.html','经验条','每 300K 升一级,升级闪光','L2'],
+ ['05-像素宠物.html','像素宠物','tokens 喂养,150K 长大一阶','L2'],
+ ['06-里程碑星标.html','里程碑星标','每 250K 点亮一颗星','L2'],
+ ['07-活动脉冲.html','活动脉冲','每次调用跳一拍心电图','L2'],
+ ['08-热力方块.html','热力方块','每小时一格,今天逐格点亮','L1+L2'],
+ ['09-仪表掌控台.html','仪表掌控台','指针随上下文占用偏转','L2'],
+ ['10-悬浮液位球.html','悬浮液位球','水位=今日用量,高了会笑','L3'],
+];
+const g=document.getElementById('grid');
+items.forEach(([f,n,core,lv],i)=>{
+ const c=document.createElement('div');c.className='card';
+ const off=f==='10-悬浮液位球.html'?'margin-left:-45px;':'';
+ c.innerHTML=`<div class="thumb"><iframe src="${f}" scrolling="no" tabindex="-1" style="${off}"></iframe></div>
+ <div class="meta"><div class="n"><em>${String(i+1).padStart(2,'0')}</em>${n}</div>
+ <div class="core">${core}</div><span class="lv${lv==='L3'?' l3':''}">还原 ${lv}</span></div>`;
+ g.appendChild(c);
+});
+</script></body></html>

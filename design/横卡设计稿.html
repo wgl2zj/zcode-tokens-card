@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<!-- ============================================================
+11 横卡数字翻牌 Odometer Card — 风格1 横向形态 · 纯当日视角。
+   版式 v4(最终):今日大数字(滚动+飘字) | 输入/输出/缓存 | 模型 TOP 3
+   (竖排大字+当日内占比条)。无会话、无历史、无多日统计。
+   真程序口径:SELECT model_id,SUM(computed_total_tokens) FROM model_usage
+   WHERE started_at>=今日0点 GROUP BY model_id ORDER BY 2 DESC LIMIT 3。
+还原路径：L1+L2(占比条纯色块;数字补间 Electron CSS/Qt QTimer/WPF Storyboard)
+窗体 380x184 无边框置顶。演示模式 JS,实际程序轮询 db.sqlite 真值。
+============================================================ -->
+<html lang="zh"><head><meta charset="utf-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#17191c;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:'Segoe UI','Microsoft YaHei',sans-serif}
+.stage-label{color:#8b929c;font-size:13px}
+.stage-label b{color:#d8dde4}
+.win{width:380px;height:184px;background:#0f1115;border:1px solid #262a31;border-radius:14px;padding:13px 18px 13px;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.top{display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;background:#3ddc84;box-shadow:0 0 6px #3ddc84;animation:bk 2.4s ease-in-out infinite}
+@keyframes bk{50%{opacity:.4}}
+.model{color:#e8eaed;font-size:12.5px;font-weight:600;flex:1}
+.req{color:#6b7280;font-size:11px;font-family:Consolas,monospace}
+.main{flex:1;display:flex;align-items:center;gap:18px;margin-top:2px}
+.left{flex:1.1;position:relative}
+.big{font-family:Consolas,monospace;font-size:33px;font-weight:700;color:#f5f7fa;letter-spacing:1px;line-height:1.1}
+.cap{color:#5f6672;font-size:10.5px;letter-spacing:4px;margin-top:3px}
+.inc{position:absolute;right:4px;top:0;font-family:Consolas,monospace;font-size:14px;font-weight:700;color:#3ddc84;opacity:0}
+.inc.hit{animation:rise 1.4s ease-out}
+@keyframes rise{0%{opacity:0;transform:translateY(8px)}20%{opacity:1}100%{opacity:0;transform:translateY(-14px)}}
+.right{flex:1;display:flex;flex-direction:column;gap:6px;border-left:1px solid #1f232a;padding-left:16px}
+.mi{display:flex;align-items:baseline;position:relative}
+.mi .k{color:#5f6672;font-size:10.5px;width:30px;flex:none}
+.mi .v{flex:1;text-align:center;font-family:Consolas,monospace;font-size:12.5px;font-weight:700;color:#c9cfd8}
+.mi .p{position:absolute;right:-2px;top:0;font-family:Consolas,monospace;font-size:10px;font-weight:700;color:#3ddc84;white-space:nowrap;opacity:0;pointer-events:none}
+.mi .p.hit{animation:rise2 1.2s ease-out}
+@keyframes rise2{0%{opacity:0;transform:translateY(6px)}22%{opacity:1}100%{opacity:0;transform:translateY(-10px)}}
+.mtop{margin-top:8px;padding-top:9px;border-top:1px solid #1f232a;display:flex;flex-direction:column;gap:7px}
+.mrow{display:flex;align-items:center;gap:8px}
+.mrow i{width:8px;height:8px;border-radius:2px;flex:none}
+.mrow .n{color:#c9cfd8;font-size:12.5px;font-weight:600;width:118px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow .track{flex:1;height:6px;background:#1f232a;border-radius:3px;overflow:hidden}
+.mrow .track b{display:block;height:100%;border-radius:3px;transition:width .9s cubic-bezier(.22,1,.36,1)}
+.mrow .v{font-family:Consolas,monospace;font-size:14.5px;font-weight:700;color:#f0f3f5;width:74px;text-align:right;white-space:nowrap}
+</style></head>
+<body>
+<div class="stage-label">11 · 横卡数字翻牌 — <b>纯当日视角 · 模型 TOP 3</b> | 还原 L1+L2</div>
+<div class="win">
+  <div class="top"><span class="dot"></span><span class="model">今日 · 9月14日 周一</span><span class="req" id="reqs">152 次</span></div>
+  <div class="main">
+    <div class="left">
+      <div class="big" id="big">106.6万</div>
+      <div class="cap">今日 TOKENS</div>
+      <span class="inc" id="inc">+2,340</span>
+    </div>
+    <div class="right">
+      <div class="mi"><span class="k">输入</span><span class="v" id="iv">56.7万</span><span class="p" id="pi"></span></div>
+      <div class="mi"><span class="k">输出</span><span class="v" id="ov">6,117</span><span class="p" id="po"></span></div>
+      <div class="mi"><span class="k">缓存</span><span class="v" id="cv">49.3万</span><span class="p" id="pc"></span></div>
+    </div>
+  </div>
+  <div class="mtop">
+    <div class="mrow">
+      <i style="background:#3ddc84"></i><span class="n">GLM-5.3-Flash</span>
+      <span class="track"><b id="p1" style="width:90%;background:#3ddc84"></b></span>
+      <span class="v" id="m1">96.3万</span>
+    </div>
+    <div class="mrow">
+      <i style="background:#39d0ff"></i><span class="n">GLM-5.3</span>
+      <span class="track"><b id="p2" style="width:8%;background:#39d0ff"></b></span>
+      <span class="v" id="m2">8.6万</span>
+    </div>
+    <div class="mrow">
+      <i style="background:#ffb454"></i><span class="n">k3</span>
+      <span class="track"><b id="p3" style="width:2%;background:#ffb454"></b></span>
+      <span class="v" id="m3">1.7万</span>
+    </div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const CNY=v=>v>=1e8?(v/1e8).toFixed(2)+'亿':v>=1e4?(v/1e4).toFixed(1)+'万':Math.round(v).toLocaleString();
+let today=1066000, tin=567000, tout=6117, tcache=493000, reqs=152;
+let m=[963000, 86000, 17000];   /* 模型当日用量,演示:真程序 ORDER BY .. DESC LIMIT 3 */
+const pcs=['#3ddc84','#39d0ff','#ffb454'];
+function tween(el,from,to,fmt){const t0=performance.now(),dur=800;
+ (function f(t){const p=Math.min((t-t0)/dur,1),e=1-Math.pow(1-p,3);
+  el.textContent=fmt?fmt(from+(to-from)*e):Math.round(from+(to-from)*e).toLocaleString();
+  if(p<1)requestAnimationFrame(f)})(t0);}
+function renderBars(){const tot=Math.max(1,m[0]+m[1]+m[2]);
+  for(let i=0;i<3;i++)
+    $('p'+(i+1)).style.width=Math.max(1.5,m[i]/tot*100)+'%';}
+renderBars();
+function popInc(el,txt){el.textContent='+'+txt.toLocaleString();
+  el.classList.remove('hit');void el.offsetWidth;el.classList.add('hit');}
+setInterval(()=>{
+  const inc=Math.floor(2000+Math.random()*10000);
+  tween($('big'),today,today+inc,CNY); today+=inc;
+  const di=Math.floor(inc*.53),dv=Math.floor(inc*.01),dc=Math.floor(inc*.46);
+  tin+=di; tout+=dv; tcache+=dc;
+  $('iv').textContent=CNY(tin);$('ov').textContent=CNY(tout);$('cv').textContent=CNY(tcache);
+  popInc($('pi'),di);popInc($('po'),dv);popInc($('pc'),dc);
+  const d=[Math.floor(inc*.88),Math.floor(inc*.09),Math.floor(inc*.03)];
+  for(let i=0;i<3;i++){
+    m[i]+=d[i];
+    tween($('m'+(i+1)),m[i]-d[i],m[i],CNY);
+  }
+  renderBars();
+  if(Math.random()<.6)reqs++;
+  $('reqs').textContent=reqs+' 次';
+  const el=$('inc');el.textContent='+'+inc.toLocaleString();
+  el.classList.remove('hit');void el.offsetWidth;el.classList.add('hit');
+},1800);
+</script></body></html>
