@@ -24,8 +24,8 @@ BIG_INC_TOP = 32
 DIVIDER_V_X = 194                     # 主区竖分隔线
 DIVIDER_V_Y = (38, 92)
 MI_ROW_CY = (39, 60, 81)              # 三列行中心
-MI_LABEL_X = 210                      # 三列标签 x
-MI_VALUE_X, MI_VALUE_W = 238, 100     # 数值居中区
+MI_LABEL_X = 200                      # 三列标签 x(贴近分隔线,给数字让位)
+MI_VALUE_X, MI_VALUE_W = 224, 114     # 数值右对齐区(完整数字+占比小字)
 MI_INC_RIGHT = 338                    # 右栏飘字右端
 DIVIDER_H_Y = 96                      # 模型区横分隔线
 MODEL_ROW_CY = (117, 142, 167)        # 模型行中心
@@ -269,23 +269,35 @@ class FloatCard(QWidget):
         p.setPen(QPen(_color(T.C_DIVIDER), 1))
         p.drawLine(DIVIDER_V_X, DIVIDER_V_Y[0],
                    DIVIDER_V_X, DIVIDER_V_Y[1])
-        # 三列:标签 | 数值居中 | 右侧飘字;缓存行附加当日占比
+        # 三列:标签 | 完整千分位数字(右对齐,小数额跳动可感知) | 右侧飘字;
+        # 缓存行数字右侧缀占比小字
         for i, key in enumerate(("input", "output", "cache")):
             cy = MI_ROW_CY[i]
             p.setPen(_color(T.C_TEXT_LABEL))
             p.setFont(_font(T.F_UI, T.FS_MI_K))
-            p.drawText(QRect(MI_LABEL_X, cy - 9, 30, 18),
+            p.drawText(QRect(MI_LABEL_X, cy - 9, 22, 18),
                        Qt.AlignLeft | Qt.AlignVCenter, MI_KEYS[i])
             val = self.tw[key].value(now)
-            text = S.cny(val)
+            text = S.full(val)
+            rect = QRect(MI_VALUE_X, cy - 9, MI_VALUE_W, 18)
+            pct = ""
             if key == "cache":
                 tot = self.tw["total"].value(now)
                 if tot > 0:
-                    text = f"{text} ({round(val / tot * 100)}%)"
+                    pct = f"{round(val / tot * 100)}%"
+            if pct:
+                p.setFont(_font(T.F_UI, T.FS_PCT))
+                pct_w = p.fontMetrics().horizontalAdvance(pct)
+                num_rect = rect.adjusted(0, 0, -pct_w - 3, 0)
+            else:
+                pct_w, num_rect = 0, rect
             p.setPen(_color(T.C_TEXT_VALUE))
             p.setFont(_font(T.F_MONO, T.FS_MI_V, True))
-            p.drawText(QRect(MI_VALUE_X, cy - 9, MI_VALUE_W, 18),
-                       Qt.AlignCenter, text)
+            p.drawText(num_rect, Qt.AlignRight | Qt.AlignVCenter, text)
+            if pct:
+                p.setPen(_color(T.C_TEXT_LABEL))
+                p.setFont(_font(T.F_UI, T.FS_PCT))
+                p.drawText(rect, Qt.AlignRight | Qt.AlignVCenter, pct)
             if self.inc_mi[i]:
                 if not self._draw_rise(p, self.inc_mi[i], now,
                                        T.INC2_RISE_MS,

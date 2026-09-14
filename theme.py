@@ -40,6 +40,7 @@ FS_REQ = 11          # 顶行"…次"
 FS_CAP = 10.5        # "今日 TOKENS"
 FS_MI_K = 10.5       # 三列标签
 FS_MI_V = 12.5       # 三列数值
+FS_PCT = 9           # 缓存行占比小字(缀在完整数字右侧)
 FS_INC2 = 10         # 右栏飘字
 FS_MNAME = 12.5      # 模型名
 FS_MVAL = 14.5       # 模型数值

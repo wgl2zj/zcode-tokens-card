@@ -17,6 +17,14 @@ def test_cny_units():
     assert S.cny(5771405738) == "57.71亿"
 
 
+def test_full_units():
+    assert S.full(0) == "0"
+    assert S.full(999) == "999"
+    assert S.full(1234567) == "1,234,567"
+    assert S.full(150_952_341.4) == "150,952,341"
+    assert S.full(150_952_341.6) == "150,952,342"
+
+
 def test_today_start_ms():
     d = datetime.datetime(2026, 9, 14, 10, 30, 45)
     ts = S.today_start_ms(d)

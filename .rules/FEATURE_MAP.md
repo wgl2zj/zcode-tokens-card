@@ -87,8 +87,9 @@
 ### 行为预期（可验证，已逐条核实代码）
 
 1. **中文单位**：≥1亿 → `X.XX亿`；≥1万 → `X.X万`；否则千分位整数；99,999,999 显示 `10000.0万`（与设计稿口径一致，不进位到亿）。出处：`stats.py:cny`（`tests/test_stats.py::test_cny_units` 锁住）。
-2. **聚合字段**：count/input/output/cache/total 五项，空输入返回全零。出处：`stats.py:aggregate`。
-3. **占比**：`shares` 按当日总量归一，总量为 0 时全 0。出处：`stats.py:shares`。
+2. **完整数字**：`full(v)` 输出千分位整数字符串（无单位），供三列小数额跳动可感知显示。出处：`stats.py:full`（`tests/test_stats.py::test_full_units` 锁住）。
+3. **聚合字段**：count/input/output/cache/total 五项，空输入返回全零。出处：`stats.py:aggregate`。
+4. **占比**：`shares` 按当日总量归一，总量为 0 时全 0。出处：`stats.py:shares`。
 
 ### 已知待修问题
 
@@ -136,9 +137,10 @@
 2. **窗体 356×192**：默认落位主屏右下角（任务栏上方，右边距 20、底边距 14），用户拖动后位置写入 `state.json` 并按原位恢复。出处：`main.py:_restore_pos`。
 3. **增量摊放**：每轮轮询到账的增量进 `drip` 池，按其产生间隔、2~4s 一跳分步释放为显示值（单段封顶 10 分钟）；显示全程 ≤ 真实值，到账停止后追平；首帧直接显示真实值不摊放。出处：`card.py:set_data/_drip`、`drip.py`（`tests/test_stream.py` 锁住）。
 4. **增量飘字**：摊放调度每释放一跳，大数字右侧与三列右侧各自冒出「+释放量」上浮淡出；首帧与零释放时不飘。出处：`card.py:_drip/_draw_rise`。
-5. **占比条**：宽度按当日总量归一平滑过渡，最小 2%；不足三个模型时多余行不渲染。出处：`card.py:_bar_targets/_draw_models`。
-6. **拖动**：左键拖动移动窗口，松开后位置写入 `state.json`。出处：`card.py:mouse*Event`。
-7. **异常态独立配色**：数据源异常时呼吸灯与状态文字变红橙 `C_ERROR`，与第三模型蓝色区分；异常期间摊放池与显示保持不动。出处：`card.py:_draw_top/set_error`。
+5. **三列完整数字**：输入/输出/缓存显示千分位完整数字（右对齐、无中文单位），缓存行右侧缀灰色占比小字（`FS_PCT`）；标签列贴近竖分隔线（x=200），数值右对齐区 224~338。出处：`card.py:_draw_main`、`stats.py:full`。
+6. **占比条**：宽度按当日总量归一平滑过渡，最小 2%；不足三个模型时多余行不渲染。出处：`card.py:_bar_targets/_draw_models`。
+7. **拖动**：左键拖动移动窗口，松开后位置写入 `state.json`。出处：`card.py:mouse*Event`。
+8. **异常态独立配色**：数据源异常时呼吸灯与状态文字变红橙 `C_ERROR`，与第三模型蓝色区分；异常期间摊放池与显示保持不动。出处：`card.py:_draw_top/set_error`。
 
 ### 已知待修问题
 

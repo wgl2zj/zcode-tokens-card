@@ -14,6 +14,11 @@ def cny(v: float) -> str:
     return f"{round(v):,}"
 
 
+def full(v: float) -> str:
+    """完整千分位整数字符串(无单位):三列显示用,小数额跳动也可感知。"""
+    return f"{round(v):,}"
+
+
 def today_start_ms(now: datetime.datetime | None = None) -> int:
     """本地时区今日 0 点的 epoch 毫秒(model_usage.started_at 的比较基准)。"""
     d = now or datetime.datetime.now()
