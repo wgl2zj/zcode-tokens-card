@@ -1,14 +1,13 @@
 """横卡窗口:QPainter 全量自绘(布局、动画、拖动交互)。
 
-玻璃拟态皮肤(选型稿 04 号):356x192,半透明渐变底 + 白亮边 + 内缘反光;
-Win10 下由 main.py 叠加 DWM 亚克力模糊获得真实磨砂。
+纸感浅色皮肤(选型稿 01 号):356x192,暖白纸底 + 细灰线 + 橙强调。
 """
 
 import math
 import time
 
 from PySide6.QtCore import QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QLinearGradient, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
 import config as cfg
@@ -173,32 +172,18 @@ class FloatCard(QWidget):
         self._draw_models(p, now)
 
     def _draw_card(self, p: QPainter) -> None:
-        """玻璃卡体:对角半透明渐变底 + 内缘上亮下暗反光 + 白亮描边。"""
-        rect = QRectF(0.5, 0.5, T.CARD_W - 1, T.CARD_H - 1)
         path = QPainterPath()
-        path.addRoundedRect(rect, T.RADIUS, T.RADIUS)
-        grad = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        grad.setColorAt(0.0, _color(T.C_GLASS_TOP, T.A_GLASS_TOP))
-        grad.setColorAt(1.0, _color(T.C_GLASS_BOTTOM, T.A_GLASS_BOTTOM))
-        p.fillPath(path, grad)
-        # 内缘高光:顶部最亮向下渐隐,模拟玻璃上缘反光(中间两档为过渡系数)
-        inner = QPainterPath()
-        inner.addRoundedRect(QRectF(1.5, 1.5, T.CARD_W - 3, T.CARD_H - 3),
-                             T.RADIUS - 1, T.RADIUS - 1)
-        edge = QLinearGradient(0, 0, 0, T.CARD_H)
-        edge.setColorAt(0.0, _color(T.C_CARD_BORDER, T.A_EDGE_GLOW))
-        edge.setColorAt(0.3, _color(T.C_CARD_BORDER, 0.10))
-        edge.setColorAt(1.0, _color(T.C_CARD_BORDER, 0.05))
-        p.setPen(QPen(QBrush(edge), 1))
-        p.drawPath(inner)
-        p.setPen(QPen(_color(T.C_CARD_BORDER, T.A_CARD_BORDER), T.BORDER_W))
+        path.addRoundedRect(QRectF(0.5, 0.5, T.CARD_W - 1, T.CARD_H - 1),
+                            T.RADIUS, T.RADIUS)
+        p.fillPath(path, _color(T.C_CARD_BG))
+        p.setPen(QPen(_color(T.C_CARD_BORDER), T.BORDER_W))
         p.drawPath(path)
 
     def _draw_top(self, p: QPainter, now: float) -> None:
-        # 呼吸灯:2.4s 周期,中点最暗(0.4),异常态变橙
+        # 呼吸灯:2.4s 周期,中点最暗(0.4),异常态变红橙
         phase = (now * 1000 % T.BREATH_MS) / T.BREATH_MS
         a = 1 - 0.6 * math.sin(math.pi * phase)
-        core = T.C_MODEL3 if self.error_text else T.C_ACCENT
+        core = T.C_ERROR if self.error_text else T.C_ACCENT
         cx, cy = TOP_DOT[0] + 4, TOP_DOT[1] + 4
         p.setPen(Qt.NoPen)
         for r, fa in ((14, 0.15), (10, 0.30)):
@@ -213,7 +198,7 @@ class FloatCard(QWidget):
         p.drawText(QRect(TOP_TEXT_X, 12, 260, 18),
                    Qt.AlignLeft | Qt.AlignVCenter, self.label)
         # 次数/状态
-        p.setPen(_color(T.C_TEXT_DIM if not self.error_text else T.C_MODEL3))
+        p.setPen(_color(T.C_TEXT_DIM if not self.error_text else T.C_ERROR))
         p.setFont(_font(T.F_MONO, T.FS_REQ))
         p.drawText(QRect(TOP_RIGHT - 150, 12, 150, 18),
                    Qt.AlignRight | Qt.AlignVCenter, self.reqs_text)
@@ -236,7 +221,7 @@ class FloatCard(QWidget):
                                    T.FS_INC, start_dy=8, end_dy=-14):
                 self.inc_big = None
         # 竖分隔线
-        p.setPen(QPen(_color(T.C_DIVIDER, T.A_DIVIDER), 1))
+        p.setPen(QPen(_color(T.C_DIVIDER), 1))
         p.drawLine(DIVIDER_V_X, DIVIDER_V_Y[0],
                    DIVIDER_V_X, DIVIDER_V_Y[1])
         # 三列:标签 | 数值居中 | 右侧飘字;缓存行附加当日占比
@@ -265,7 +250,7 @@ class FloatCard(QWidget):
                     self.inc_mi[i] = None
 
     def _draw_models(self, p: QPainter, now: float) -> None:
-        p.setPen(QPen(_color(T.C_DIVIDER, T.A_DIVIDER), 1))
+        p.setPen(QPen(_color(T.C_DIVIDER), 1))
         p.drawLine(18, DIVIDER_H_Y, M_VAL_RIGHT, DIVIDER_H_Y)
         fm_name = _font(T.F_UI, T.FS_MNAME, weight=QFont.DemiBold)
         for i, cy in enumerate(MODEL_ROW_CY):
@@ -286,7 +271,7 @@ class FloatCard(QWidget):
                        Qt.AlignLeft | Qt.AlignVCenter, elided)
             # 占比条
             p.setPen(Qt.NoPen)
-            p.setBrush(_color(T.C_DIVIDER, T.A_DIVIDER))
+            p.setBrush(_color(T.C_DIVIDER))
             p.drawRoundedRect(QRect(M_TRACK_X, int(cy) - 3,
                                     M_TRACK_W, M_TRACK_H), 3, 3)
             w = max(3, min(M_TRACK_W, self.bar_w[i])) if name else 0
