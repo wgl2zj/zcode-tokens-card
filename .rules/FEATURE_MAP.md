@@ -104,18 +104,19 @@
 
 ### 一句话定位
 
-把每轮到账的用量增量在 30s 窗口内按 3~4s 节拍分步释放，让悬浮窗数字常跳而显示落后有界；card 数值显示的唯一节拍源。
+把每段到账的用量增量按其产生间隔（与上一次到账的时间差）在后续时间里按 2~4s 节拍分步释放，让悬浮窗数字常跳而显示落后有界；card 数值显示的唯一节拍源。
 
 ### 行为预期（可验证，已逐条核实代码）
 
-1. **窗口收敛**：单批增量在到账后 30s 窗口内按剩余窗口均分多跳放完，过期一次清空。出处：`drip.py:release`（`tests/test_stream.py::test_single_delta_drips_within_window` 锁住）。
-2. **守恒**：任意时刻 已释放+在池 = 已入池；窗口未到期的新增量并入同池且 deadline 不顺延。出处：`drip.py:add`（`test_conservation_when_new_delta_joins` 锁住）。
-3. **落后有界**：显示不超真实；真实值停止增长后 30s 内追平。出处：`drip.py` 窗口机制（`test_display_lag_bounded_and_catches_up` 锁住）。
-4. **字段等比**：多字段同池按剩余量等比释放，字段间比例与池内一致。出处：`drip.py:release`（`test_fields_released_proportionally` 锁住）。
+1. **按时长摊放**：单段摊放时长 = 该段产生间隔（首段无参照按一个节拍 4s），封顶 `SMOOTH_MAX_DURATION_MS`（10 分钟）；段内按剩余时长均分多跳，过期一次清空。出处：`drip.py:add/release`（`tests/test_stream.py::test_duration_matches_arrival_gap`、`test_max_duration_cap` 锁住）。
+2. **守恒与并行**：各段独立成池、独立期限，同跳合并释放、先到期先放完；任意时刻 已释放+在池 = 已入池。出处：`drip.py:release`（`test_conservation_parallel_batches` 锁住）。
+3. **落后有界**：显示不超真实；到账停止后 max(末段时长， 节拍) 内追平。出处：`drip.py` 期限机制（`test_display_lag_bounded_and_catches_up` 锁住）。
+4. **段内等比**：单段多字段按剩余量等比释放；多段合计不保证全局等比。出处：`drip.py:release`（`test_fields_released_proportionally` 锁住）。
 
 ### 反直觉/易误解（踩坑预警）
 
-- **release 的跳数按剩余窗口折算**：同一批增量每次释放量会随 deadline 逼近而变大，不是恒定等分；"匀速感"来自节拍固定而非释放量固定。
+- **零增量不入池也不推进到账时刻**：间隔跨过无新增的轮询继续累计，直到真正有记录的那次。
+- **释放量随期限逼近变大**：节拍固定但每次释放量按剩余时长折算，不是恒定等分。
 
 ---
 
@@ -133,7 +134,7 @@
 
 1. **皮肤为纸感浅色**（选型稿 `design/皮肤总览.html` 01 号）：暖白纸底 `#fdfcf9`、细灰线描边、橙色强调、四周落地柔影；窗口比卡片大一圈（四周 14px 透明边距画投影），色值一律取自 `theme.py`，布局坐标常量集中在 `card.py` 顶部。出处：`card.py:_draw_card/_draw_shadow`、`theme.py`。
 2. **窗体 356×192**：默认落位主屏右下角（任务栏上方，右边距 20、底边距 14），用户拖动后位置写入 `state.json` 并按原位恢复。出处：`main.py:_restore_pos`。
-3. **增量摊放**：每轮轮询到账的增量进 `drip` 池，按 3~4s 一跳、30s 窗口内分步释放为显示值；显示全程 ≤ 真实值，真实值稳定后 30s 内追平；首帧直接显示真实值不摊放。出处：`card.py:set_data/_drip`、`drip.py`（`tests/test_stream.py` 锁住）。
+3. **增量摊放**：每轮轮询到账的增量进 `drip` 池，按其产生间隔、2~4s 一跳分步释放为显示值（单段封顶 10 分钟）；显示全程 ≤ 真实值，到账停止后追平；首帧直接显示真实值不摊放。出处：`card.py:set_data/_drip`、`drip.py`（`tests/test_stream.py` 锁住）。
 4. **增量飘字**：摊放调度每释放一跳，大数字右侧与三列右侧各自冒出「+释放量」上浮淡出；首帧与零释放时不飘。出处：`card.py:_drip/_draw_rise`。
 5. **占比条**：宽度按当日总量归一平滑过渡，最小 2%；不足三个模型时多余行不渲染。出处：`card.py:_bar_targets/_draw_models`。
 6. **拖动**：左键拖动移动窗口，松开后位置写入 `state.json`。出处：`card.py:mouse*Event`。

@@ -1,7 +1,7 @@
 """横卡窗口:QPainter 全量自绘(布局、动画、拖动交互)。
 
 纸感浅色皮肤(选型稿 01 号):356x192,暖白纸底 + 细灰线 + 橙强调。
-数值显示走 drip 摊放:每轮到账增量在 30s 窗口内 3~4s 一跳分步释放。
+数值显示走 drip 摊放:每段增量按其产生时长 2~4s 一跳分步释放(封顶 10 分钟)。
 """
 
 import math
@@ -106,7 +106,8 @@ class FloatCard(QWidget):
         self._shown: dict[str, float] = {}    # 已释放到的显示目标
         self._last_real: dict[str, float] = {}  # 上次轮询真实值(算增量用)
         self._sched = drip.DripScheduler(
-            T.SMOOTH_WINDOW_MS, T.SMOOTH_TICK_MIN_MS, T.SMOOTH_TICK_MAX_MS)
+            T.SMOOTH_TICK_MIN_MS, T.SMOOTH_TICK_MAX_MS,
+            T.SMOOTH_MAX_DURATION_MS)
         self.models: list[tuple[str, int]] = []
         self.bar_w = [0.0, 0.0, 0.0]
         self.inc_big = None            # (text, t0)
@@ -128,7 +129,7 @@ class FloatCard(QWidget):
         """d:{"count","input","output","cache","total","models":[(名称,总量)]}。
 
         首帧直接显示真实值;此后每轮把增量交给 drip 池,由帧循环分步释放,
-        显示值最多落后真实值一个摊放窗口(SMOOTH_WINDOW_MS)。
+        每段摊放时长=该段产生间隔(封顶 SMOOTH_MAX_DURATION_MS)。
         """
         models = d.get("models", [])
         values = {

@@ -1,4 +1,4 @@
-"""drip 单测:增量摊放调度的窗口收敛、守恒与字段等比。
+"""drip 单测:增量摊放调度的按时长摊放、守恒、封顶与字段等比。
 
 全部用注入时钟(now_ms 参数),不依赖真实时间;不触碰任何数据库。
 """
@@ -21,85 +21,104 @@ def drive(sched: drip.DripScheduler, start_ms: float, dur_ms: float,
     return released, count
 
 
-def test_single_delta_drips_within_window():
-    """单批增量:30s 窗口内放完,3~4s 一跳(至少 5 跳)。"""
-    s = drip.DripScheduler(window_ms=30_000, tick_min_ms=3_000,
-                           tick_max_ms=4_000)
-    t0 = 1_000.0
-    s.add({"total": 100_000.0}, t0)
-    released, count = drive(s, t0, 32_000)
-    assert count >= 5
-    assert abs(released["total"] - 100_000.0) < 0.01
+def test_first_batch_uses_default_tick():
+    """首段无间隔信息:按一个节拍(4s)快速放完。"""
+    s = drip.DripScheduler(tick_min_ms=2_000, tick_max_ms=4_000,
+                           max_duration_ms=600_000)
+    s.add({"total": 10_000.0}, 1_000.0)
+    released, _ = drive(s, 1_000.0, 6_000.0)
+    assert abs(released["total"] - 10_000.0) < 0.01
     assert not s.pending()
 
 
-def test_conservation_when_new_delta_joins():
-    """窗口内新增量并入同一池:任意时刻已释放+在池 = 总入池,不丢量。"""
-    s = drip.DripScheduler(window_ms=30_000, tick_min_ms=3_000,
-                           tick_max_ms=4_000)
-    t0 = 0.0
-    s.add({"total": 60_000.0}, t0)
+def test_duration_matches_arrival_gap():
+    """间隔 60s 到账的一批:在接下来的 60s 内渐进释放,不过期不放完。"""
+    s = drip.DripScheduler(tick_min_ms=2_000, tick_max_ms=4_000,
+                           max_duration_ms=600_000)
+    s.add({"total": 10_000.0}, 0.0)                 # 首段默认 4s
+    first, _ = drive(s, 0.0, 6_000.0)
+    assert abs(first["total"] - 10_000.0) < 0.01
+
+    s.add({"total": 60_000.0}, 60_000.0)            # 距上次到账 60s → 时长 60s
+    mid, count = drive(s, 60_000.0, 40_000.0)       # 只推 40s(<60s 时长)
+    assert 0.0 < mid["total"] < 60_000.0            # 渐进中,未放完
+    tail, count2 = drive(s, 100_000.0, 30_000.0)    # 推过 deadline(120s)
+    assert abs(mid["total"] + tail["total"] - 60_000.0) < 0.01
+    assert count + count2 >= 15                     # 60s/4s 至少 15 跳
+
+
+def test_conservation_parallel_batches():
+    """多段并行:任意时刻 已释放+在池 = 已入池,先到期先放完。"""
+    s = drip.DripScheduler(tick_min_ms=2_000, tick_max_ms=4_000,
+                           max_duration_ms=600_000)
+    deposited = 0.0
     released_total = 0.0
-    deposited = 60_000.0
-    t = t0
-    while t < t0 + 20_000:
-        if t == 6_000.0:
-            s.add({"total": 30_000.0}, t)   # 窗口未到期,deadline 不顺延
-            deposited += 30_000.0
+    t = 0.0
+    while t <= 100_000.0:
+        if t == 0.0:
+            s.add({"total": 40_000.0}, t)           # 40s 时长段
+            deposited += 40_000.0
+        if t == 20_000.0:
+            s.add({"total": 10_000.0}, t)           # 20s 时长段
+            deposited += 10_000.0
         if s.due(t):
-            chunk = s.release(t)
-            released_total += chunk.get("total", 0.0)
-        # 守恒:已释放 + 在池 == 已入池
+            released_total += s.release(t).get("total", 0.0)
         assert abs(released_total + sum(s.pending().values())
                    - deposited) < 0.01
         t += 500.0
-    tail, _ = drive(s, t, 30_000)
-    released_total += tail.get("total", 0.0)
-    assert abs(released_total - 90_000.0) < 0.01
+    tail, _ = drive(s, t, 60_000.0)
+    assert abs(released_total + tail.get("total", 0.0) - 50_000.0) < 0.01
 
 
 def test_display_lag_bounded_and_catches_up():
-    """显示不超真实;真实值停止增长后 30s 内追平。"""
-    s = drip.DripScheduler(window_ms=30_000, tick_min_ms=3_000,
-                           tick_max_ms=4_000)
+    """持续到账:显示不超真实;停止到账后一个节拍+一段间隔内追平。"""
+    s = drip.DripScheduler(tick_min_ms=2_000, tick_max_ms=4_000,
+                           max_duration_ms=600_000)
     t = 0.0
     real = 0.0
     shown = 0.0
-    while t < 60_000:                      # 持续输入:每 3s 到账 1 万
+    while t < 120_000.0:                    # 每 5s 到账 1 万(时长 5s)
         real += 10_000.0
         s.add({"total": 10_000.0}, t)
         if s.due(t):
             shown += s.release(t).get("total", 0.0)
-        assert shown <= real + 0.01        # 全程不超真实
+        assert shown <= real + 0.01
         t += 500.0
-    tail, _ = drive(s, t, 30_000)          # 输入停止,窗口内应追平
+    tail, _ = drive(s, t, 20_000.0)
     shown += tail.get("total", 0.0)
     assert abs(shown - real) < 0.01
 
 
+def test_max_duration_cap():
+    """间隔超过封顶(10 分钟)时按封顶时长放完:610s 内应放完 700s 间隔的量。"""
+    s = drip.DripScheduler(tick_min_ms=2_000, tick_max_ms=4_000,
+                           max_duration_ms=600_000)
+    s.add({"total": 1_000.0}, 0.0)
+    drive(s, 0.0, 6_000.0)
+    s.add({"total": 1_000_000.0}, 700_000.0)        # 间隔 700s > 封顶
+    released, _ = drive(s, 700_000.0, 610_000.0)    # 只推 610s(<未封顶的 700s)
+    assert abs(released["total"] - 1_000_000.0) < 0.01
+
+
 def test_fields_released_proportionally():
-    """多字段同池:单次释放保持池内字段比例(总量:输入:输出 同步)。"""
-    s = drip.DripScheduler(window_ms=30_000, tick_min_ms=3_000,
-                           tick_max_ms=4_000)
+    """单段多字段:一次释放保持段内字段比例。"""
+    s = drip.DripScheduler(tick_min_ms=2_000, tick_max_ms=4_000,
+                           max_duration_ms=600_000)
     s.add({"total": 1_000.0, "input": 100.0, "output": 900.0}, 0.0)
-    assert s.due(3_500.0)
-    chunk = s.release(3_500.0)
-    ratio_total_input = chunk["total"] / chunk["input"]
-    ratio_total_output = chunk["total"] / chunk["output"]
-    assert abs(ratio_total_input - 10.0) < 1e-6
-    assert abs(ratio_total_output - 10.0 / 9.0) < 1e-6
+    assert s.due(4_000.0)
+    chunk = s.release(4_000.0)
+    assert abs(chunk["total"] / chunk["input"] - 10.0) < 1e-6
+    assert abs(chunk["total"] / chunk["output"] - 10.0 / 9.0) < 1e-6
 
 
-def test_empty_scheduler_is_inert():
-    """空池不排程不释放;窗口内部分释放,过期后一次清空。"""
-    s = drip.DripScheduler()
+def test_empty_and_zero_delta_are_inert():
+    """空池不释放;零增量不入池、也不推进到账时刻。"""
+    s = drip.DripScheduler(tick_min_ms=2_000, tick_max_ms=4_000,
+                           max_duration_ms=600_000)
     assert not s.due(0.0)
     assert s.release(1_000.0) == {}
-    s.add({"total": 5_000.0}, 1_000.0)
-    assert s.due(1_000.0 + 4_000.0)
-    chunk = s.release(1_000.0 + 4_000.0)
-    assert 0.0 < chunk["total"] < 5_000.0        # 窗口未过 → 只放一份
-    tail, _ = drive(s, 5_000.0, 40_000.0)        # 推进过 30s 窗口
-    total_out = chunk["total"] + tail.get("total", 0.0)
-    assert abs(total_out - 5_000.0) < 0.01       # 全部放完
-    assert not s.due(60_000.0)
+    s.add({"total": 0.0}, 5_000.0)                  # 零增量:不入池
+    assert s.pending() == {}
+    s.add({"total": 8_000.0}, 60_000.0)             # 无参照 → 仍按首段 4s
+    chunk = s.release(64_000.0)
+    assert abs(chunk["total"] - 8_000.0) < 0.01
