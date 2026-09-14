@@ -147,7 +147,13 @@ def main() -> None:
     app.setApplicationName("ZCode 用量")
     if notify_running_instance():
         sys.exit(0)
-    App(app)
+    a = App(app)
+    if not a.server.isListening():
+        # 兜底:监听失败说明存在并发实例(极端时序),唤醒对方并退出自己,
+        # 绝不出现两个完整实例并存。
+        if notify_running_instance():
+            sys.exit(0)
+        sys.exit(1)
     sys.exit(app.exec())
 
 
