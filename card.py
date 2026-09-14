@@ -237,11 +237,12 @@ class FloatCard(QWidget):
         p.setBrush(_color(core, a))
         p.drawEllipse(QRectF(TOP_DOT[0], TOP_DOT[1],
                              TOP_DOT[2], TOP_DOT[3]))
-        # 日期标签
+        # 日期标签 + 24h 时钟(重绘帧持续触发,时间每秒自然刷新)
         p.setPen(_color(T.C_TEXT_HEAD))
         p.setFont(_font(T.F_UI, T.FS_HEAD, weight=QFont.DemiBold))
         p.drawText(QRect(TOP_TEXT_X, 12, 260, 18),
-                   Qt.AlignLeft | Qt.AlignVCenter, self.label)
+                   Qt.AlignLeft | Qt.AlignVCenter,
+                   f"{self.label}  {time.strftime('%H:%M')}")
         # 次数/状态
         p.setPen(_color(T.C_TEXT_DIM if not self.error_text else T.C_ERROR))
         p.setFont(_font(T.F_MONO, T.FS_REQ))
