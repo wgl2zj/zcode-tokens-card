@@ -2,6 +2,7 @@
 
 import ctypes
 import sys
+import time
 from ctypes import wintypes
 
 from PySide6.QtCore import QRect, Qt, QTimer
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (QApplication, QMenu, QSystemTrayIcon)
 
 import card as card_mod
 import config as cfg
+import current
 import reader
 import stats as S
 from theme import POLL_MS, WIN_H, WIN_W
@@ -116,6 +118,7 @@ class App:
 
         # 数据轮询
         self.conn = None
+        self._resolver = current.SessionResolver()
         self.poll = QTimer(self.app)
         self.poll.timeout.connect(self._poll)
         self._poll()
@@ -192,10 +195,30 @@ class App:
             start = S.today_start_ms()
             d = S.aggregate(reader.fetch_day_rows(self.conn, start))
             d["models"] = reader.fetch_top_models(self.conn, start, 3)
+            d["cur"] = self._current_session()
             self.card.set_data(d)
         except Exception as exc:  # 库锁/schema 变化/路径缺失 → 降级显示
             self.conn = None
             self.card.set_error(f"{type(exc).__name__}")
+
+    def _current_session(self) -> dict | None:
+        """当前查看会话的用量:库内最近活跃为主,leveldb 切换动作可覆盖。
+
+        leveldb 解析失败静默降级为"最近活跃会话";库错误由 _poll 统一
+        走数据源异常路径。查询条数固定,不随 model_usage 行数增长。
+        """
+        latest = reader.fetch_latest_session(self.conn)
+        if latest is None:
+            return None
+        sid, _, active_ms = latest
+        sid = self._resolver.resolve(current.scan_candidates(),
+                                     sid, active_ms, time.time() * 1000)
+        if sid is None:
+            return None
+        total, inp, outp, cach = reader.fetch_session_usage(self.conn, sid)
+        return {"title": reader.fetch_session_title(self.conn, sid),
+                "total": total, "input": inp, "output": outp,
+                "cache": cach}
 
 
 def main() -> None:

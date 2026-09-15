@@ -34,3 +34,37 @@ def fetch_top_models(conn: sqlite3.Connection, day_start_ms: int,
         " GROUP BY model_id ORDER BY s DESC LIMIT ?",
         (day_start_ms, limit),
     ).fetchall()
+
+
+def fetch_session_usage(conn: sqlite3.Connection,
+                        session_id: str) -> tuple[int, int, int, int]:
+    """单个会话开天辟地以来的用量合计:(总计, 输入, 输出, 缓存)。
+
+    口径与今日行一致:computed_total_tokens 已含缓存读取。
+    """
+    row = conn.execute(
+        "SELECT IFNULL(SUM(computed_total_tokens), 0),"
+        " IFNULL(SUM(input_tokens), 0),"
+        " IFNULL(SUM(output_tokens), 0),"
+        " IFNULL(SUM(cache_read_input_tokens), 0)"
+        " FROM model_usage WHERE session_id = ?", (session_id,)).fetchone()
+    return tuple(int(v) for v in row)
+
+
+def fetch_latest_session(conn: sqlite3.Connection) -> tuple[str, str, int] | None:
+    """全库最近活跃会话:(session_id, title, time_updated 毫秒)。
+
+    是"当前对话"的主信号:有 token 产出的会话即用户正在用的会话;
+    一个会话都没有(全新环境)时返回 None。
+    """
+    row = conn.execute(
+        "SELECT id, title, time_updated FROM session"
+        " ORDER BY time_updated DESC LIMIT 1").fetchone()
+    return (row[0], row[1] or "", int(row[2])) if row else None
+
+
+def fetch_session_title(conn: sqlite3.Connection, session_id: str) -> str:
+    """单个会话标题;不存在或为空返回空串(UI 显示占位)。"""
+    row = conn.execute("SELECT title FROM session WHERE id = ?",
+                       (session_id,)).fetchone()
+    return (row[0] or "") if row else ""

@@ -15,22 +15,29 @@ REAL_DB_MARKER = "db.sqlite"
 
 @pytest.fixture
 def tmp_conn(tmp_path):
-    """临时 SQLite 库:建表 + 造三条今日数据、一条昨日数据。"""
+    """临时 SQLite 库:建表 + 造三条今日数据、一条昨日数据、两个会话。"""
     path = tmp_path / "usage_test.sqlite"
     conn = sqlite3.connect(str(path))
     conn.execute(
         "CREATE TABLE model_usage (model_id TEXT, started_at INTEGER,"
         " input_tokens INT, output_tokens INT, cache_read_input_tokens INT,"
-        " computed_total_tokens INT)")
+        " computed_total_tokens INT, session_id TEXT)")
+    conn.execute(
+        "CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT,"
+        " time_updated INTEGER)")
     start = S.today_start_ms()
     conn.executemany(
-        "INSERT INTO model_usage VALUES (?,?,?,?,?,?)",
+        "INSERT INTO model_usage VALUES (?,?,?,?,?,?,?)",
         [
-            ("GLM-5.3-Flash", start + 1000, 100, 10, 50, 160),
-            ("GLM-5.3-Flash", start + 2000, 200, 20, 80, 300),
-            ("k3", start + 3000, 50, 5, 10, 65),
-            ("GLM-5.3", start - 86400000, 999, 999, 999, 2997),  # 昨日,应排除
+            ("GLM-5.3-Flash", start + 1000, 100, 10, 50, 160, "sess_a"),
+            ("GLM-5.3-Flash", start + 2000, 200, 20, 80, 300, "sess_b"),
+            ("k3", start + 3000, 50, 5, 10, 65, "sess_a"),
+            ("GLM-5.3", start - 86400000, 999, 999, 999, 2997,
+             "sess_a"),  # 昨日,应排除
         ])
+    conn.executemany(
+        "INSERT INTO session VALUES (?,?,?)",
+        [("sess_a", "会话甲", 100), ("sess_b", "会话乙", 200)])
     conn.commit()
     yield conn
     conn.close()
@@ -65,3 +72,29 @@ def test_fetch_top_models(tmp_conn):
     top = reader.fetch_top_models(tmp_conn, S.today_start_ms(), 3)
     assert top[0] == ("GLM-5.3-Flash", 460)
     assert top == [("GLM-5.3-Flash", 460), ("k3", 65)]
+
+
+def test_fetch_session_usage(tmp_conn):
+    """按会话跨天全量合计(含昨日行):(总计, 输入, 输出, 缓存)。"""
+    assert reader.fetch_session_usage(tmp_conn, "sess_a") \
+        == (160 + 65 + 2997, 100 + 50 + 999, 10 + 5 + 999, 50 + 10 + 999)
+
+
+def test_fetch_session_usage_empty(tmp_conn):
+    assert reader.fetch_session_usage(tmp_conn, "sess_无") == (0, 0, 0, 0)
+
+
+def test_fetch_latest_session(tmp_conn):
+    """全库最近活跃会话:id/title/时间戳三元组。"""
+    assert reader.fetch_latest_session(tmp_conn) == ("sess_b", "会话乙", 200)
+
+
+def test_fetch_latest_session_none(tmp_conn):
+    tmp_conn.execute("DELETE FROM session")
+    tmp_conn.commit()
+    assert reader.fetch_latest_session(tmp_conn) is None
+
+
+def test_fetch_session_title(tmp_conn):
+    assert reader.fetch_session_title(tmp_conn, "sess_a") == "会话甲"
+    assert reader.fetch_session_title(tmp_conn, "sess_无") == ""

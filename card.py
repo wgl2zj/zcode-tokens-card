@@ -1,14 +1,16 @@
 """横卡窗口:QPainter 全量自绘(布局、动画、拖动交互)。
 
-纸感浅色皮肤(选型稿 01 号):356x192,暖白纸底 + 细灰线 + 橙强调。
+纸感浅色皮肤(选型稿 01 号):312x218,暖白纸底 + 细灰线 + 橙强调。
 数值显示走 drip 摊放:每段增量按其产生时长 2~4s 一跳分步释放(封顶 10 分钟)。
+底部"当前对话"行例外:不走池、无飘字,每轮轮询整值直显(用户约定)。
 """
 
 import math
 import time
 
 from PySide6.QtCore import QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import (QColor, QFont, QFontMetrics, QPainter,
+                           QPainterPath, QPen)
 from PySide6.QtWidgets import QWidget
 
 import config as cfg
@@ -16,7 +18,7 @@ import drip
 import stats as S
 import theme as T
 
-# —— 布局常量(px,288x192) ——
+# —— 布局常量(px,312x218) ——
 BIG_RECT = (16, 34, 116, 36)          # 今日大数字
 CAP_RECT = (16, 72, 130, 14)          # "今日 TOKENS"
 BIG_INC_RIGHT = 138                   # 大飘字右端(竖分隔线左侧)
@@ -25,17 +27,20 @@ DIVIDER_V_X = 142                     # 主区竖分隔线
 DIVIDER_V_Y = (38, 92)
 MI_ROW_CY = (39, 60, 81)              # 三列行中心
 MI_LABEL_X = 148                      # 三列标签 x(贴近分隔线,给数字让位)
-MI_VALUE_X, MI_VALUE_W = 179, 95      # 数值左对齐区(与标签留 10px 间隙)
-MI_INC_RIGHT = 274                    # 右栏飘字右端
+MI_VALUE_X, MI_VALUE_W = 179, 115     # 数值左对齐区(与标签留 10px 间隙)
+MI_INC_RIGHT = 298                    # 右栏飘字右端
 DIVIDER_H_Y = 96                      # 模型区横分隔线
 MODEL_ROW_CY = (117, 142, 167)        # 模型行中心
 M_DOT_X, M_DOT_SIZE = 16, 8
 M_NAME_X, M_NAME_W = 32, 92
 M_TRACK_X, M_TRACK_W, M_TRACK_H = 132, 78, 6
-M_VAL_RIGHT = 274
+M_VAL_RIGHT = 298
 TOP_DOT = (16, 17, 8, 8)              # 呼吸灯
 TOP_TEXT_X = 38
-TOP_RIGHT = 274
+TOP_RIGHT = 298
+DIVIDER_H2_Y = 180                    # 底部"当前对话"行上方的细分隔线
+CUR_ROW_CY = 198                      # 当前对话行中心
+CUR_X0, CUR_RIGHT = 16, 298           # 当前行可用横向范围
 MI_KEYS = ("输入", "输出", "缓存")
 TWEEN_KEYS = ("total", "input", "output", "cache", "m0", "m1", "m2")
 
@@ -89,7 +94,7 @@ class _Tween:
 
 
 class FloatCard(QWidget):
-    """380x184 无边框置顶横卡。数据入口:set_data / set_error。"""
+    """340x246 无边框置顶横卡。数据入口:set_data / set_error。"""
 
     def __init__(self):
         # Qt.Tool:不进任务栏、不进 Alt-Tab,仅托盘交互(用户要求)
@@ -108,6 +113,7 @@ class FloatCard(QWidget):
             T.SMOOTH_TICK_MIN_MS, T.SMOOTH_TICK_MAX_MS,
             T.SMOOTH_MAX_DURATION_MS, T.SMOOTH_JITTER_MIN, T.SMOOTH_JITTER_MAX)
         self.models: list[tuple[str, int]] = []
+        self.cur: dict | None = None   # 当前对话用量(整值直显,不走池)
         self.bar_w = [0.0, 0.0, 0.0]
         self.inc_big = None            # (text, t0)
         self.inc_mi = [None, None, None]
@@ -161,6 +167,9 @@ class FloatCard(QWidget):
             if any(delta.values()):
                 self._sched.add(delta, self._now_ms())
         self.models = models
+        # 当前对话数字按用户约定不进 drip 池、不补间:每轮直接整值替换,
+        # 切换会话/刷新立即反映真实汇总。
+        self.cur = d.get("cur")
         self.reqs_text = f"{d['count']} 次"
         self.error_text = ""
 
@@ -211,6 +220,7 @@ class FloatCard(QWidget):
         self._draw_top(p, now)
         self._draw_main(p, now)
         self._draw_models(p, now)
+        self._draw_cur(p)
 
     def _draw_shadow(self, p: QPainter) -> None:
         """落地投影:多层圆角矩形向外扩、alpha 递减,贴近设计稿 5% 柔影。"""
@@ -348,6 +358,74 @@ class FloatCard(QWidget):
             p.drawText(QRect(M_VAL_RIGHT - 60, int(cy) - 9, 60, 18),
                        Qt.AlignRight | Qt.AlignVCenter,
                        S.cny(val) if name else "")
+
+    def _draw_cur(self, p: QPainter) -> None:
+        """底部当前对话行:标题(截断)：总计/输入/输出/缓存 + 缓存占比。
+
+        标题吃行首剩余宽度(省略号截断),数字段靠右;数字不走 drip 池
+        (set_data 已整值直显),这里只做静态排版。
+        """
+        if self.cur is None:
+            return
+        c = self.cur
+        val = lambda k: float(c.get(k, 0) or 0)
+        total = val("total")
+        pct = round(val("cache") / total * 100) if total > 0 else 0
+        nums = _font(T.F_MONO, T.FS_CUR, True)
+        lab = _font(T.F_UI, T.FS_CUR)
+        groups = [("总", val("total")), ("入", val("input")),
+                  ("出", val("output")), ("缓", val("cache"))]
+
+        def adv(font: QFont, text: str) -> float:
+            return QFontMetrics(font).horizontalAdvance(text)
+
+        # 先量数字段总宽,标题吃剩余;组间距 5px,括号前 3px
+        gap, gap_p = 5, 3
+        suffix_w = 0.0
+        for k, _v in groups:
+            suffix_w += adv(lab, k) + adv(nums, S.cny(_v)) + gap
+        suffix_w += adv(lab, f"（{pct}%）") + gap_p
+        title = str(c.get("title") or "").strip() or "—"
+        title_w = max(10.0, CUR_RIGHT - CUR_X0 - suffix_w)
+        title_font = _font(T.F_UI, T.FS_CUR, weight=QFont.DemiBold)
+        fm_t = QFontMetrics(title_font)
+        elided = fm_t.elidedText(title, Qt.ElideRight, int(title_w))
+
+        x = float(CUR_X0)
+        p.setPen(QPen(_color(T.C_DIVIDER), 1))
+        p.drawLine(18, DIVIDER_H2_Y, CUR_RIGHT, DIVIDER_H2_Y)
+        # 标题
+        p.setPen(_color(T.C_TEXT_VALUE))
+        p.setFont(title_font)
+        p.drawText(QRect(int(x), CUR_ROW_CY - 9, int(title_w), 18),
+                   Qt.AlignLeft | Qt.AlignVCenter, elided)
+        x += title_w
+        # 冒号 + 各组 + 占比
+        p.setPen(_color(T.C_TEXT_LABEL))
+        p.setFont(lab)
+        colon = "："
+        p.drawText(QRect(int(x), CUR_ROW_CY - 9, int(adv(lab, colon)) + 2, 18),
+                   Qt.AlignLeft | Qt.AlignVCenter, colon)
+        x += adv(lab, colon)
+        for i, (k, v) in enumerate(groups):
+            x += gap
+            p.setPen(_color(T.C_TEXT_LABEL))
+            p.setFont(lab)
+            p.drawText(QRect(int(x), CUR_ROW_CY - 9, int(adv(lab, k)) + 2, 18),
+                       Qt.AlignLeft | Qt.AlignVCenter, k)
+            x += adv(lab, k)
+            p.setPen(_color(T.C_TEXT_VALUE))
+            p.setFont(nums)
+            p.drawText(QRect(int(x), CUR_ROW_CY - 9,
+                             int(adv(nums, S.cny(v))) + 2, 18),
+                       Qt.AlignLeft | Qt.AlignVCenter, S.cny(v))
+            x += adv(nums, S.cny(v))
+        x += gap_p
+        p.setPen(_color(T.C_TEXT_LABEL))
+        p.setFont(lab)
+        p.drawText(QRect(int(x), CUR_ROW_CY - 9,
+                         CUR_RIGHT - int(x) + 2, 18),
+                   Qt.AlignLeft | Qt.AlignVCenter, f"（{pct}%）")
 
     @staticmethod
     def _draw_rise(p: QPainter, inc: tuple, now: float, dur_ms: int,
