@@ -211,6 +211,72 @@
 2. **容错**：读库异常时保留上次显示并标记"数据源异常"（呼吸灯变红橙），下次轮询自动重连。出处：`main.py:_poll`。
 3. **位置校验**：恢复位置时窗口须与任一屏幕相交，否则落回主屏右下默认位。出处：`main.py:_restore_pos`。
 4. **轮询装配当前会话**：每轮轮询追加固定 3 条查询（最近活跃会话、会话标题、会话用量）+ 一次 leveldb 扫描，查询条数不随 `model_usage` 行数增长；装配结果经 `current.SessionResolver` 裁决后交给 `card.set_data` 的 `cur` 字段。出处：`main.py:_current_session`（`tests/test_current.py` 裁决行为锁住）。
+5. **托盘菜单四项**：跟随显示、开机自启动、显示/隐藏、退出；自启动勾选状态初始化自注册表现状（先设状态后连信号，初始化不产生注册表写），勾选变化即写/删 Run 键，失败回弹勾选并托盘气泡提示。出处：`main.py` 托盘装配、`_toggle_autostart`。
+
+### 已知待修问题
+
+- （暂无）
+
+---
+
+## 配置持久化（config.py）
+
+**主代码**：`config.py`
+**模型/数据**：`state.json`（源码模式：仓库根；打包模式：`%APPDATA%/ZCodeTokensCard/state.json`）
+**关联决策**：无
+
+### 一句话定位
+
+窗口几何等运行状态的唯一读写口；读失败返回空、写失败静默（配置非关键路径）。
+
+### 行为预期（可验证，已逐条核实代码）
+
+1. **路径按形态分流**：源码模式 = 仓库根 `state.json`；打包（`sys.frozen`）模式 = `%APPDATA%/ZCodeTokensCard/state.json`（父目录自动创建，APPDATA 缺失退回 `~/`）。出处：`config.py:config_path`（`tests/test_config.py` 锁住）。
+2. **读写容错**：`load` 对缺失/损坏 JSON 返回 `{}`；`save` 增量合并不覆盖既有键、写失败静默不抛。出处：`config.py:load/save`（`tests/test_config.py` 锁住）。
+
+### 反直觉/易误解（踩坑预警）
+
+- **打包模式的程序目录不可靠**：onefile exe 每次运行解压到临时目录，状态必须放 APPDATA，否则窗口位置重启即丢。
+
+---
+
+## 开机自启动（autostart.py）
+
+**主代码**：`autostart.py`（托盘入口在 `main.py:_toggle_autostart`）
+**模型/数据**：注册表 `HKCU\...\CurrentVersion\Run` 的 `ZCodeTokensCard` 条目（仅当前用户，无需管理员）
+**关联决策**：无
+
+### 一句话定位
+
+托盘"开机自启动"勾选项的注册表读写；只操作本程序专属条目，不碰其他程序的 Run 记录。
+
+### 行为预期（可验证，已逐条核实代码）
+
+1. **勾选即写、取消即删**：enable 覆盖写入 `REG_SZ` 启动命令（源码模式 `pythonw.exe main.py`，打包模式 exe 自身，路径均带引号）；disable 删除条目，未开启时幂等通过。出处：`autostart.py`（`tests/test_autostart.py` 锁住；真实注册表写入/回读/删除已于 2026-09-15 人工验证）。
+2. **状态如实**：`is_enabled` = Run 键里存在 `ZCodeTokensCard` 条目；读取失败按未开启处理。出处：`autostart.py:is_enabled`。
+3. **失败回弹**：注册表写/删抛 `OSError` 时，`main.py:_toggle_autostart` 回弹勾选并托盘气泡提示，不崩溃、不假成功。出处：`main.py:_toggle_autostart`。
+4. **只动自己**：其他程序的 Run 条目不受任何影响。出处：固定值名 `_VALUE_NAME`（`tests/test_autostart.py::test_only_own_entry_touched` 锁住）。
+
+### 反直觉/易误解（踩坑预警）
+
+- **移动 exe 后需重新勾一次**：条目存在即视为"已开启"，exe 挪位置后旧命令失效，重新勾选一次即修复（enable 是覆盖写）。
+
+---
+
+## 打包分发（PyInstaller）
+
+**主代码**：`ZCodeTokensCard.spec`、`tools/make_icon.py`
+**模型/数据**：无
+**关联决策**：`docs/打包分发说明.md`（构建命令与对使用者说明）
+
+### 一句话定位
+
+把程序打成单文件 exe 供他人免安装使用；打包模式与源码模式共用业务代码，仅状态文件路径与自启动命令按 `sys.frozen` 分流。
+
+### 行为预期（可验证，已逐条核实代码）
+
+1. **单文件产物**：`python -m PyInstaller ZCodeTokensCard.spec --noconfirm --distpath dist --workpath build` 产出 `dist/ZCodeTokensCard.exe`（无控制台、带 Z 图标）；`build/`、`dist/` 不入库。出处：spec 文件、`.gitignore`。
+2. **冻结态可启动**：exe 启动能完成 PySide6 全部导入（QtCore/QtGui/QtNetwork/QtWidgets）并执行单实例逻辑。2026-09-15 实测：已有实例运行时启动 exe，唤醒对方后自身退出码 0。
 
 ### 已知待修问题
 

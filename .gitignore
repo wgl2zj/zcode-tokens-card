@@ -4,3 +4,5 @@ __pycache__/
 state.json
 shot*.png
 .pytest_cache/
+build/
+dist/

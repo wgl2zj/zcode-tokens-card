@@ -10,6 +10,7 @@ from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (QApplication, QMenu, QSystemTrayIcon)
 
+import autostart
 import card as card_mod
 import config as cfg
 import current
@@ -93,11 +94,16 @@ class App:
         self.follow = QAction("仅 ZCode 聚焦时显示", menu, checkable=True)
         self.follow.toggled.connect(self._apply_focus)
         self.follow.setChecked(True)
+        # 自启动勾选状态取自注册表现状;先设状态再连信号,避免初始化触发一次冗余写
+        self.autostart = QAction("开机自启动", menu, checkable=True)
+        self.autostart.setChecked(autostart.is_enabled())
+        self.autostart.toggled.connect(self._toggle_autostart)
         act_toggle = QAction("显示 / 隐藏", menu)
         act_toggle.triggered.connect(self._toggle_card)
         act_quit = QAction("退出", menu)
         act_quit.triggered.connect(self.quit)
         menu.addAction(self.follow)
+        menu.addAction(self.autostart)
         menu.addAction(act_toggle)
         menu.addAction(act_quit)
         self.tray.setContextMenu(menu)
@@ -167,6 +173,18 @@ class App:
         else:
             self.card.show()
             self.card.raise_()
+
+    def _toggle_autostart(self, checked: bool) -> None:
+        """勾选切换写/删 HKCU Run 键;失败回弹勾选并气泡提示。"""
+        try:
+            (autostart.enable if checked else autostart.disable)()
+        except OSError as exc:
+            self.autostart.blockSignals(True)
+            self.autostart.setChecked(not checked)
+            self.autostart.blockSignals(False)
+            self.tray.showMessage("ZCode 用量",
+                                  f"开机自启动设置失败：{exc}",
+                                  QSystemTrayIcon.Warning, 3000)
 
     def _on_connection(self) -> None:
         sock = self.server.nextPendingConnection()
