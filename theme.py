@@ -59,8 +59,8 @@ BREATH_MS = 2400              # 呼吸灯周期
 FRAME_MS = 33                 # 重绘帧间隔(~30fps)
 
 # —— 增量摊放(drip.py):每段增量按其产生时长分步释放,数字常跳、落后有界 ——
-SMOOTH_TICK_MIN_MS = 2_000     # 释放节拍下限
-SMOOTH_TICK_MAX_MS = 4_000     # 释放节拍上限(按时长上限折算跳数保证放完)
+SMOOTH_TICK_MIN_MS = 1_000     # 释放节拍下限
+SMOOTH_TICK_MAX_MS = 3_000     # 释放节拍上限(按时长上限折算跳数保证放完)
 SMOOTH_MAX_DURATION_MS = 600_000  # 单段摊放时长封顶 10 分钟(隔夜不无限拖)
 SMOOTH_JITTER_MIN = 0.7        # 每跳释放量抖动下限(×均分值),防相邻跳重样
 SMOOTH_JITTER_MAX = 1.3        # 每跳释放量抖动上限

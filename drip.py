@@ -26,8 +26,8 @@ class _Batch:
 class DripScheduler:
     """多段增量池:每 2~4s 一跳,每跳各未到期池按剩余时间均分并随机抖动。"""
 
-    def __init__(self, tick_min_ms: float = 2_000.0,
-                 tick_max_ms: float = 4_000.0,
+    def __init__(self, tick_min_ms: float = 1_000.0,
+                 tick_max_ms: float = 3_000.0,
                  max_duration_ms: float = 600_000.0,
                  jitter_min: float = 0.7, jitter_max: float = 1.3):
         self._tick_min = float(tick_min_ms)
