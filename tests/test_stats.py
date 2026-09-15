@@ -35,7 +35,7 @@ def test_today_start_ms():
 
 def test_today_label():
     d = datetime.datetime(2026, 9, 14, 8, 0)  # 2026-09-14 是周一
-    assert S.today_label(d) == "今日 · 9月14日 周一"
+    assert S.today_label(d) == "9月14日 周一"
 
 
 def test_aggregate():

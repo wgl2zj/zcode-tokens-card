@@ -2,11 +2,11 @@
 
 皮肤:纸感浅色(选型稿 design/皮肤总览.html 01 号,用户选定):
 暖白纸底 + 细灰线 + 少量橙强调,Notion 式文档安静气质,白天不刺眼。
-窗体 356x192(用户指定,默认置于主屏右下、ZCode 窗口右下空白区)。
+窗体 288x192(用户指定,默认置于主屏右下、ZCode 窗口右下空白区)。
 """
 
 # —— 画布 ——
-CARD_W, CARD_H = 356, 192      # 卡片内容尺寸(视觉边界)
+CARD_W, CARD_H = 288, 192      # 卡片内容尺寸(视觉边界)
 SHADOW_PAD = 14                # 窗口四周透明边距:容纳落地投影的绘制空间
 WIN_W, WIN_H = CARD_W + SHADOW_PAD * 2, CARD_H + SHADOW_PAD * 2
 RADIUS = 10
@@ -33,17 +33,17 @@ C_MODEL3 = "#2383e2"           # 第三模型(蓝)
 MODEL_COLORS = (C_ACCENT, C_MODEL2, C_MODEL3)
 
 # —— 字号(px) ——
-FS_BIG = 33          # 今日大数字
-FS_INC = 14          # 大数字飘字
-FS_HEAD = 12.5       # 顶行"今日 · …"
-FS_REQ = 11          # 顶行"…次"
-FS_CAP = 10.5        # "今日 TOKENS"
+FS_BIG = 26          # 今日大数字
+FS_INC = 13          # 大数字飘字
+FS_HEAD = 12         # 顶行"9月14日 周一 08:59"
+FS_REQ = 10.5        # 顶行"…次"
+FS_CAP = 9.5         # "今日 TOKENS"
 FS_MI_K = 10.5       # 三列标签
 FS_MI_V = 12.5       # 三列数值
 FS_PCT = 9           # 缓存行占比小字(缀在完整数字右侧)
 FS_INC2 = 10         # 右栏飘字
-FS_MNAME = 12.5      # 模型名
-FS_MVAL = 14.5       # 模型数值
+FS_MNAME = 12        # 模型名
+FS_MVAL = 13.5       # 模型数值
 
 # —— 字体族 ——
 F_MONO = "Consolas"           # 数字/代码感文本

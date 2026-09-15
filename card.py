@@ -16,26 +16,26 @@ import drip
 import stats as S
 import theme as T
 
-# —— 布局常量(px,356x192) ——
-BIG_RECT = (18, 34, 165, 38)          # 今日大数字
-CAP_RECT = (18, 73, 165, 14)          # "今日 TOKENS"
-BIG_INC_RIGHT = 191                   # 大飘字右端(竖分隔线左侧)
+# —— 布局常量(px,288x192) ——
+BIG_RECT = (16, 34, 116, 36)          # 今日大数字
+CAP_RECT = (16, 72, 130, 14)          # "今日 TOKENS"
+BIG_INC_RIGHT = 138                   # 大飘字右端(竖分隔线左侧)
 BIG_INC_TOP = 32
-DIVIDER_V_X = 194                     # 主区竖分隔线
+DIVIDER_V_X = 142                     # 主区竖分隔线
 DIVIDER_V_Y = (38, 92)
 MI_ROW_CY = (39, 60, 81)              # 三列行中心
-MI_LABEL_X = 200                      # 三列标签 x(贴近分隔线,给数字让位)
-MI_VALUE_X, MI_VALUE_W = 224, 114     # 数值右对齐区(完整数字+占比小字)
-MI_INC_RIGHT = 338                    # 右栏飘字右端
+MI_LABEL_X = 148                      # 三列标签 x(贴近分隔线,给数字让位)
+MI_VALUE_X, MI_VALUE_W = 170, 114     # 数值左对齐区(完整数字+占比小字)
+MI_INC_RIGHT = 274                    # 右栏飘字右端
 DIVIDER_H_Y = 96                      # 模型区横分隔线
 MODEL_ROW_CY = (117, 142, 167)        # 模型行中心
-M_DOT_X, M_DOT_SIZE = 18, 8
-M_NAME_X, M_NAME_W = 34, 100
-M_TRACK_X, M_TRACK_W, M_TRACK_H = 142, 108, 6
-M_VAL_RIGHT = 338
-TOP_DOT = (18, 17, 8, 8)              # 呼吸灯
-TOP_TEXT_X = 34
-TOP_RIGHT = 338
+M_DOT_X, M_DOT_SIZE = 16, 8
+M_NAME_X, M_NAME_W = 32, 92
+M_TRACK_X, M_TRACK_W, M_TRACK_H = 132, 100, 6
+M_VAL_RIGHT = 274
+TOP_DOT = (16, 17, 8, 8)              # 呼吸灯
+TOP_TEXT_X = 32
+TOP_RIGHT = 274
 MI_KEYS = ("输入", "输出", "缓存")
 TWEEN_KEYS = ("total", "input", "output", "cache", "m0", "m1", "m2")
 
@@ -248,7 +248,7 @@ class FloatCard(QWidget):
         # 日期标签(每帧按当前日期生成,跨零点自动换日) + 24h 时钟
         p.setPen(_color(T.C_TEXT_HEAD))
         p.setFont(_font(T.F_UI, T.FS_HEAD, weight=QFont.DemiBold))
-        p.drawText(QRect(TOP_TEXT_X, 12, 260, 18),
+        p.drawText(QRect(TOP_TEXT_X, 12, 210, 18),
                    Qt.AlignLeft | Qt.AlignVCenter,
                    f"{S.today_label()}  {time.strftime('%H:%M')}")
         # 次数/状态
@@ -264,7 +264,7 @@ class FloatCard(QWidget):
         p.drawText(QRect(*BIG_RECT), Qt.AlignLeft | Qt.AlignVCenter,
                    S.cny(self.tw["total"].value(now)))
         p.setPen(_color(T.C_TEXT_LABEL))
-        p.setFont(_font(T.F_UI, T.FS_CAP, spacing=4.0))
+        p.setFont(_font(T.F_UI, T.FS_CAP, spacing=2.5))
         p.drawText(QRect(*CAP_RECT), Qt.AlignLeft | Qt.AlignVCenter,
                    "今日 TOKENS")
         # 大飘字

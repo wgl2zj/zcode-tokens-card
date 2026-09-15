@@ -27,9 +27,10 @@ def today_start_ms(now: datetime.datetime | None = None) -> int:
 
 
 def today_label(now: datetime.datetime | None = None) -> str:
-    """顶行日期标签:"今日 · 9月14日 周一"。"""
+    """顶行日期标签:"9月14日 周一"(时间由 card 拼接;288 宽卡顶行放不下
+    "今日 · "前缀与次数并排,今日语义由"今日 TOKENS"小标承担)。"""
     d = now or datetime.datetime.now()
-    return f"今日 · {d.month}月{d.day}日 周{_WEEK[d.weekday()]}"
+    return f"{d.month}月{d.day}日 周{_WEEK[d.weekday()]}"
 
 
 def aggregate(rows) -> dict:
