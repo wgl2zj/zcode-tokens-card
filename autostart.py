@@ -34,6 +34,29 @@ def is_enabled() -> bool:
         return False
 
 
+def stored_command() -> str | None:
+    """Run 键中本程序条目的当前值;不存在或读取失败返回 None。"""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, _VALUE_NAME)
+            return value
+    except (FileNotFoundError, OSError):
+        return None
+
+
+def sync() -> bool:
+    """路径漂移自愈:条目存在但指向与当前命令不一致时覆盖为新命令。
+
+    条目不存在(用户未开启)时绝不动,避免把自启动偷偷打开;
+    读取失败同样保守跳过。返回是否发生了修复。
+    """
+    stored = stored_command()
+    if stored is None or stored == command():
+        return False
+    enable()
+    return True
+
+
 def enable() -> None:
     """写入/覆盖本程序条目;失败抛 OSError(由 UI 层回弹勾选)。"""
     with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0,

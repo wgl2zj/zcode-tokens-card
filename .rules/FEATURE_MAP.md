@@ -256,10 +256,12 @@
 2. **状态如实**：`is_enabled` = Run 键里存在 `ZCodeTokensCard` 条目；读取失败按未开启处理。出处：`autostart.py:is_enabled`。
 3. **失败回弹**：注册表写/删抛 `OSError` 时，`main.py:_toggle_autostart` 回弹勾选并托盘气泡提示，不崩溃、不假成功。出处：`main.py:_toggle_autostart`。
 4. **只动自己**：其他程序的 Run 条目不受任何影响。出处：固定值名 `_VALUE_NAME`（`tests/test_autostart.py::test_only_own_entry_touched` 锁住）。
+5. **路径漂移自愈**：每次启动 `main.py` 调 `autostart.sync`——条目存在但指向与当前命令不一致时自动覆盖为新命令；条目不存在（用户未开启）或读取失败时保守不动，绝不擅自开启；修复失败静默不影响启动。出处：`autostart.py:sync`（`tests/test_autostart.py::test_sync_*` 锁住；真实注册表"伪造旧路径→sync→改回"已于 2026-09-15 实测）。
 
 ### 反直觉/易误解（踩坑预警）
 
-- **移动 exe 后需重新勾一次**：条目存在即视为"已开启"，exe 挪位置后旧命令失效，重新勾选一次即修复（enable 是覆盖写）。
+- **移动 exe 无需手动处理**：Run 条目存的是静态路径，但程序启动时会自愈修正，"勾选显示开着却没自启"的窗口期只存在于 exe 挪位后到下一次启动之间。
+- **手工改过 Run 命令会被覆盖**：自愈以"与程序生成的标准命令精确一致"为最新标准，若手动给 Run 条目加过自定义参数，下次启动会被覆盖回标准命令。
 
 ---
 

@@ -138,3 +138,40 @@ def test_command_frozen_mode(monkeypatch):
     monkeypatch.setattr(autostart.sys, "executable",
                         r"C:\app dir\ZCodeTokensCard.exe")
     assert autostart.command() == '"C:\\app dir\\ZCodeTokensCard.exe"'
+
+
+# —— sync:启动时路径漂移自愈 ——
+
+def test_sync_noop_when_missing(fake_reg):
+    """未开启时 sync 绝不擅自开启。"""
+    assert autostart.sync() is False
+    assert fake_reg.values == {}
+
+
+def test_sync_noop_when_up_to_date(fake_reg):
+    autostart.enable()
+    assert autostart.sync() is False
+    assert fake_reg.values == {autostart._VALUE_NAME: autostart.command()}
+
+
+def test_sync_rewrites_stale_path(fake_reg, monkeypatch):
+    """exe/仓库挪位后(此处以源码→冻结形态变化模拟漂移),sync 覆盖为新命令。"""
+    autostart.enable()  # 写入源码模式命令
+    monkeypatch.setattr(autostart.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(autostart.sys, "executable",
+                        r"D:\新位置\ZCodeTokensCard.exe")
+    assert autostart.command() != autostart.stored_command()
+    assert autostart.sync() is True
+    assert fake_reg.values == {autostart._VALUE_NAME: autostart.command()}
+    assert autostart.is_enabled() is True
+
+
+def test_sync_read_failure_is_conservative_noop(fake_reg):
+    autostart.enable()
+    fake_reg.fail_on.add("open")   # 条目在但读不出 → 保守不动
+    assert autostart.sync() is False
+    assert autostart.is_enabled() is False
+
+
+def test_stored_command_missing_returns_none(fake_reg):
+    assert autostart.stored_command() is None

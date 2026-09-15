@@ -109,6 +109,12 @@ class App:
         self.tray.setContextMenu(menu)
         self.tray.setToolTip("ZCode 用量")
         self.tray.show()
+        # 自启动路径自愈:exe/仓库挪位后旧条目指向失效路径,启动时自动修正
+        # (条目不存在说明用户未开启,sync 不会擅自打开);修复失败静默,不影响启动
+        try:
+            autostart.sync()
+        except OSError:
+            pass
         self.app.aboutToQuit.connect(self._cleanup)
 
         # 聚焦联动:ZCode.exe(或卡片自身)为前台 → 显示,否则隐藏
