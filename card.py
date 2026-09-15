@@ -360,11 +360,10 @@ class FloatCard(QWidget):
                        S.cny(val) if name else "")
 
     def _draw_cur(self, p: QPainter) -> None:
-        """底部当前对话行:标题(截断)：总N（缓存P%）。
+        """底部当前对话行:左标题(截断),右消耗量 + 缓存占比。
 
-        用户约定只显示总计与缓存占比(字号 FS_CUR);标题吃行首剩余
-        宽度(省略号截断),数字段靠右;数字不走 drip 池(set_data 已
-        整值直显),这里只做静态排版。
+        用户约定不显示冒号与"总"字标签;标题吃行首剩余宽度(省略号
+        截断),数字不走 drip 池(set_data 已整值直显),这里只做静态排版。
         """
         if self.cur is None:
             return
@@ -380,8 +379,7 @@ class FloatCard(QWidget):
 
         # 先量数字段总宽,标题吃剩余
         num_text = S.cny(total)
-        suffix_w = (adv(lab, "总") + adv(nums, num_text)
-                    + 4 + adv(lab, f"（{pct}%）"))
+        suffix_w = adv(nums, num_text) + 4 + adv(lab, f"（{pct}%）")
         title = str(c.get("title") or "").strip() or "—"
         title_w = max(10.0, CUR_RIGHT - CUR_X0 - suffix_w)
         title_font = _font(T.F_UI, T.FS_CUR, weight=QFont.DemiBold)
@@ -396,18 +394,17 @@ class FloatCard(QWidget):
         p.drawText(QRect(int(x), CUR_ROW_CY - 9, int(title_w), 18),
                    Qt.AlignLeft | Qt.AlignVCenter, elided)
         x += title_w
+        p.setPen(_color(T.C_TEXT_VALUE))
+        p.setFont(nums)
+        p.drawText(QRect(int(x), CUR_ROW_CY - 9,
+                         int(adv(nums, num_text)) + 2, 18),
+                   Qt.AlignLeft | Qt.AlignVCenter, num_text)
+        x += adv(nums, num_text) + 4
         p.setPen(_color(T.C_TEXT_LABEL))
         p.setFont(lab)
-        for text, font, color in (("：", lab, T.C_TEXT_LABEL),
-                                  ("总", lab, T.C_TEXT_LABEL),
-                                  (num_text, nums, T.C_TEXT_VALUE),
-                                  (f"（{pct}%）", lab, T.C_TEXT_LABEL)):
-            p.setPen(_color(color))
-            p.setFont(font)
-            p.drawText(QRect(int(x), CUR_ROW_CY - 9,
-                             int(adv(font, text)) + 2, 18),
-                       Qt.AlignLeft | Qt.AlignVCenter, text)
-            x += adv(font, text)
+        p.drawText(QRect(int(x), CUR_ROW_CY - 9,
+                         int(adv(lab, f"（{pct}%）")) + 2, 18),
+                   Qt.AlignLeft | Qt.AlignVCenter, f"（{pct}%）")
 
     @staticmethod
     def _draw_rise(p: QPainter, inc: tuple, now: float, dur_ms: int,
