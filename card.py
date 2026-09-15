@@ -360,10 +360,11 @@ class FloatCard(QWidget):
                        S.cny(val) if name else "")
 
     def _draw_cur(self, p: QPainter) -> None:
-        """底部当前对话行:标题(截断)：总计/输入/输出/缓存 + 缓存占比。
+        """底部当前对话行:标题(截断)：总N（缓存P%）。
 
-        标题吃行首剩余宽度(省略号截断),数字段靠右;数字不走 drip 池
-        (set_data 已整值直显),这里只做静态排版。
+        用户约定只显示总计与缓存占比(字号 FS_CUR);标题吃行首剩余
+        宽度(省略号截断),数字段靠右;数字不走 drip 池(set_data 已
+        整值直显),这里只做静态排版。
         """
         if self.cur is None:
             return
@@ -373,18 +374,14 @@ class FloatCard(QWidget):
         pct = round(val("cache") / total * 100) if total > 0 else 0
         nums = _font(T.F_MONO, T.FS_CUR, True)
         lab = _font(T.F_UI, T.FS_CUR)
-        groups = [("总", val("total")), ("入", val("input")),
-                  ("出", val("output")), ("缓", val("cache"))]
 
         def adv(font: QFont, text: str) -> float:
             return QFontMetrics(font).horizontalAdvance(text)
 
-        # 先量数字段总宽,标题吃剩余;组间距 5px,括号前 3px
-        gap, gap_p = 5, 3
-        suffix_w = 0.0
-        for k, _v in groups:
-            suffix_w += adv(lab, k) + adv(nums, S.cny(_v)) + gap
-        suffix_w += adv(lab, f"（{pct}%）") + gap_p
+        # 先量数字段总宽,标题吃剩余
+        num_text = S.cny(total)
+        suffix_w = (adv(lab, "总") + adv(nums, num_text)
+                    + 4 + adv(lab, f"（{pct}%）"))
         title = str(c.get("title") or "").strip() or "—"
         title_w = max(10.0, CUR_RIGHT - CUR_X0 - suffix_w)
         title_font = _font(T.F_UI, T.FS_CUR, weight=QFont.DemiBold)
@@ -394,38 +391,23 @@ class FloatCard(QWidget):
         x = float(CUR_X0)
         p.setPen(QPen(_color(T.C_DIVIDER), 1))
         p.drawLine(18, DIVIDER_H2_Y, CUR_RIGHT, DIVIDER_H2_Y)
-        # 标题
         p.setPen(_color(T.C_TEXT_VALUE))
         p.setFont(title_font)
         p.drawText(QRect(int(x), CUR_ROW_CY - 9, int(title_w), 18),
                    Qt.AlignLeft | Qt.AlignVCenter, elided)
         x += title_w
-        # 冒号 + 各组 + 占比
         p.setPen(_color(T.C_TEXT_LABEL))
         p.setFont(lab)
-        colon = "："
-        p.drawText(QRect(int(x), CUR_ROW_CY - 9, int(adv(lab, colon)) + 2, 18),
-                   Qt.AlignLeft | Qt.AlignVCenter, colon)
-        x += adv(lab, colon)
-        for i, (k, v) in enumerate(groups):
-            x += gap
-            p.setPen(_color(T.C_TEXT_LABEL))
-            p.setFont(lab)
-            p.drawText(QRect(int(x), CUR_ROW_CY - 9, int(adv(lab, k)) + 2, 18),
-                       Qt.AlignLeft | Qt.AlignVCenter, k)
-            x += adv(lab, k)
-            p.setPen(_color(T.C_TEXT_VALUE))
-            p.setFont(nums)
+        for text, font, color in (("：", lab, T.C_TEXT_LABEL),
+                                  ("总", lab, T.C_TEXT_LABEL),
+                                  (num_text, nums, T.C_TEXT_VALUE),
+                                  (f"（{pct}%）", lab, T.C_TEXT_LABEL)):
+            p.setPen(_color(color))
+            p.setFont(font)
             p.drawText(QRect(int(x), CUR_ROW_CY - 9,
-                             int(adv(nums, S.cny(v))) + 2, 18),
-                       Qt.AlignLeft | Qt.AlignVCenter, S.cny(v))
-            x += adv(nums, S.cny(v))
-        x += gap_p
-        p.setPen(_color(T.C_TEXT_LABEL))
-        p.setFont(lab)
-        p.drawText(QRect(int(x), CUR_ROW_CY - 9,
-                         CUR_RIGHT - int(x) + 2, 18),
-                   Qt.AlignLeft | Qt.AlignVCenter, f"（{pct}%）")
+                             int(adv(font, text)) + 2, 18),
+                       Qt.AlignLeft | Qt.AlignVCenter, text)
+            x += adv(font, text)
 
     @staticmethod
     def _draw_rise(p: QPainter, inc: tuple, now: float, dur_ms: int,
