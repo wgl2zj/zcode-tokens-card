@@ -1,6 +1,6 @@
 """横卡窗口:QPainter 全量自绘(布局、动画、拖动交互)。
 
-纸感浅色皮肤(选型稿 01 号):312x218,暖白纸底 + 细灰线 + 橙强调。
+纸感浅色皮肤(选型稿 01 号):296x218,暖白纸底 + 细灰线 + 橙强调。
 数值显示走 drip 摊放:每段增量按其产生时长 2~4s 一跳分步释放(封顶 10 分钟)。
 底部"当前对话"行例外:不走池、无飘字,每轮轮询整值直显(用户约定)。
 """
@@ -18,7 +18,7 @@ import drip
 import stats as S
 import theme as T
 
-# —— 布局常量(px,312x218) ——
+# —— 布局常量(px,296x218) ——
 BIG_RECT = (16, 34, 116, 36)          # 今日大数字
 CAP_RECT = (16, 72, 130, 14)          # "今日 TOKENS"
 BIG_INC_RIGHT = 138                   # 大飘字右端(竖分隔线左侧)
@@ -27,20 +27,20 @@ DIVIDER_V_X = 142                     # 主区竖分隔线
 DIVIDER_V_Y = (38, 92)
 MI_ROW_CY = (39, 60, 81)              # 三列行中心
 MI_LABEL_X = 148                      # 三列标签 x(贴近分隔线,给数字让位)
-MI_VALUE_X, MI_VALUE_W = 179, 115     # 数值左对齐区(与标签留 10px 间隙)
-MI_INC_RIGHT = 298                    # 右栏飘字右端
+MI_VALUE_X, MI_VALUE_W = 176, 102     # 数值左对齐区(亿级11位数+缓存占比不溢出)
+MI_INC_RIGHT = 282                    # 右栏飘字右端
 DIVIDER_H_Y = 96                      # 模型区横分隔线
 MODEL_ROW_CY = (117, 142, 167)        # 模型行中心
 M_DOT_X, M_DOT_SIZE = 16, 8
 M_NAME_X, M_NAME_W = 32, 92
 M_TRACK_X, M_TRACK_W, M_TRACK_H = 132, 78, 6
-M_VAL_RIGHT = 298
+M_VAL_RIGHT = 282
 TOP_DOT = (16, 17, 8, 8)              # 呼吸灯
 TOP_TEXT_X = 38
-TOP_RIGHT = 298
+TOP_RIGHT = 282
 DIVIDER_H2_Y = 180                    # 底部"当前对话"行上方的细分隔线
 CUR_ROW_CY = 198                      # 当前对话行中心
-CUR_X0, CUR_RIGHT = 16, 298           # 当前行可用横向范围
+CUR_X0, CUR_RIGHT = 16, 282           # 当前行可用横向范围
 MI_KEYS = ("输入", "输出", "缓存")
 TWEEN_KEYS = ("total", "input", "output", "cache", "m0", "m1", "m2")
 
@@ -94,7 +94,7 @@ class _Tween:
 
 
 class FloatCard(QWidget):
-    """340x246 无边框置顶横卡。数据入口:set_data / set_error。"""
+    """324x246 无边框置顶横卡。数据入口:set_data / set_error。"""
 
     def __init__(self):
         # Qt.Tool:不进任务栏、不进 Alt-Tab,仅托盘交互(用户要求)
