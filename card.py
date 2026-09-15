@@ -25,13 +25,13 @@ DIVIDER_V_X = 142                     # 主区竖分隔线
 DIVIDER_V_Y = (38, 92)
 MI_ROW_CY = (39, 60, 81)              # 三列行中心
 MI_LABEL_X = 148                      # 三列标签 x(贴近分隔线,给数字让位)
-MI_VALUE_X, MI_VALUE_W = 170, 114     # 数值左对齐区(完整数字+占比小字)
+MI_VALUE_X, MI_VALUE_W = 179, 95      # 数值左对齐区(与标签留 10px 间隙)
 MI_INC_RIGHT = 274                    # 右栏飘字右端
 DIVIDER_H_Y = 96                      # 模型区横分隔线
 MODEL_ROW_CY = (117, 142, 167)        # 模型行中心
 M_DOT_X, M_DOT_SIZE = 16, 8
 M_NAME_X, M_NAME_W = 32, 92
-M_TRACK_X, M_TRACK_W, M_TRACK_H = 132, 100, 6
+M_TRACK_X, M_TRACK_W, M_TRACK_H = 132, 78, 6
 M_VAL_RIGHT = 274
 TOP_DOT = (16, 17, 8, 8)              # 呼吸灯
 TOP_TEXT_X = 32
@@ -345,7 +345,7 @@ class FloatCard(QWidget):
             p.setPen(_color(T.C_TEXT_MODEL_VAL))
             p.setFont(_font(T.F_MONO, T.FS_MVAL, True))
             val = self.tw[f"m{i}"].value(now)
-            p.drawText(QRect(M_VAL_RIGHT - 82, int(cy) - 9, 82, 18),
+            p.drawText(QRect(M_VAL_RIGHT - 60, int(cy) - 9, 60, 18),
                        Qt.AlignRight | Qt.AlignVCenter,
                        S.cny(val) if name else "")
 
