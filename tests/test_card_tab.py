@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QFont, QFontMetrics, QMouseEvent
 from PySide6.QtWidgets import QApplication
 
 import card as card_mod
@@ -71,12 +71,39 @@ def test_default_tab_is_usage(card):
 
 def test_tab_at_hit_test():
     """命中判定:左格 → 0,右格 → 1,控件外 → None。"""
-    x, y, w, h = card_mod.TAB_BOX
-    cy = y + h // 2
-    assert card_mod.FloatCard.tab_at(QPoint(x + 4, cy)) == 0
-    assert card_mod.FloatCard.tab_at(QPoint(x + w // 2 + 4, cy)) == 1
-    assert card_mod.FloatCard.tab_at(QPoint(x - 10, cy)) is None
-    assert card_mod.FloatCard.tab_at(QPoint(x + 4, y + h + 10)) is None
+    x = card_mod.tab_x("9月24日 周四 15:15")
+    cy = card_mod.TAB_Y + card_mod.TAB_H // 2
+    assert card_mod.FloatCard.tab_at(QPoint(x + 4, cy), x) == 0
+    assert card_mod.FloatCard.tab_at(
+        QPoint(x + card_mod.TAB_W // 2 + 4, cy), x) == 1
+    assert card_mod.FloatCard.tab_at(QPoint(x - 10, cy), x) is None
+    assert card_mod.FloatCard.tab_at(
+        QPoint(x + 4, card_mod.TAB_Y + card_mod.TAB_H + 10), x) is None
+
+
+def test_tab_centered_between_head_and_count():
+    """tab 居中:与左侧日期时钟、右侧次数的间距相等(误差 ≤1px),且比兜底位右移。"""
+    head = "9月24日 周四 15:15"
+    x = card_mod.tab_x(head)
+    fm_head = QFontMetrics(card_mod._font(card_mod.T.F_UI, card_mod.T.FS_HEAD,
+                                          weight=QFont.DemiBold))
+    fm_req = QFontMetrics(card_mod._font(card_mod.T.F_MONO, card_mod.T.FS_REQ))
+    left_end = card_mod.TOP_TEXT_X + fm_head.horizontalAdvance(head)
+    right_start = (card_mod.TOP_RIGHT
+                   - fm_req.horizontalAdvance(card_mod.TAB_RIGHT_REF))
+    gap_left = x - left_end
+    gap_right = right_start - (x + card_mod.TAB_W)
+    assert abs(gap_left - gap_right) <= 1
+    assert x >= card_mod.TAB_DEFAULT_X
+
+
+def test_tab_x_tracks_head_text_width():
+    """居中位置随左侧文本宽度变化(长文本 → tab 右移),但右侧参照不随次数位数抖动。"""
+    short = card_mod.tab_x("9月1日 周一 9:05")
+    long = card_mod.tab_x("12月24日 周四 15:15")
+    assert long > short
+    assert card_mod.tab_x("9月24日 周四 15:15") == card_mod.tab_x(
+        "9月24日 周四 15:15")          # 同文本同结果(纯函数)
 
 
 @pytest.mark.parametrize("dx,dy,expected", [
@@ -94,10 +121,11 @@ def test_click_on_tab_switches_and_click_does_not_save_pos(card, monkeypatch):
     saved = []
     monkeypatch.setattr(card_mod.cfg, "save",
                         lambda **kv: saved.append(kv))
-    x, y, w, h = card_mod.TAB_BOX
-    _click(card, x + w // 2 + 4, y + h // 2)
+    x = card_mod.tab_x()
+    cy = card_mod.TAB_Y + card_mod.TAB_H // 2
+    _click(card, x + card_mod.TAB_W // 2 + 4, cy)
     assert card.tab == 1
-    _click(card, x + 4, y + h // 2)
+    _click(card, x + 4, cy)
     assert card.tab == 0
     assert saved == []
 
@@ -107,8 +135,9 @@ def test_drag_keeps_tab_and_saves_pos(card, monkeypatch):
     saved = []
     monkeypatch.setattr(card_mod.cfg, "save",
                         lambda **kv: saved.append(kv))
-    x, y, w, h = card_mod.TAB_BOX
-    wx, wy = x + w // 2 + 4 + 14, y + h // 2 + 14
+    x = card_mod.tab_x()
+    cy = card_mod.TAB_Y + card_mod.TAB_H // 2
+    wx, wy = x + card_mod.TAB_W // 2 + 4 + 14, cy + 14
     local = QPointF(wx, wy)
     glob = QPointF(card.mapToGlobal(QPoint(wx, wy)))
     card.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, local, glob,

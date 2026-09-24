@@ -48,19 +48,40 @@ CUR_X0, CUR_RIGHT = 16, 282           # 当前行可用横向范围
 MI_KEYS = ("输入", "输出", "缓存")
 TWEEN_KEYS = ("total", "input", "output", "cache", "m0", "m1", "m2")
 
-# —— tab 切换(顶行右侧分段控件;放在日期与"次数"之间的空白带,不改两处既有坐标) ——
-TAB_BOX = (156, 12, 64, 18)           # x, y, w, h;两格等宽
+# —— tab 切换(顶行分段控件;x 由 tab_x() 按"左侧日期时钟"与"右侧次数"动态居中) ——
+TAB_Y, TAB_W, TAB_H = 12, 64, 18      # 两格等宽
+TAB_DEFAULT_X = 156                   # 兜底 x(尚未绘制时的命中判定)
+TAB_RIGHT_REF = "0000 次"             # 居中参照:右侧次数按 4 位数排布(位数变化不牵连 tab)
 TAB_LABELS = ("用量", "套餐")
 CLICK_MAX_MOVE = 4                    # 按下→释放位移 ≤ 该值视为点击,否则视为拖动
 
 # —— tab 1:套餐额度布局(复用 tab 0 的行几何,保持同一视觉语言) ——
 Q_ROW_CY = (110, 138, 166)            # 三个额度窗口行中心
-Q_BAR_X, Q_BAR_W, Q_BAR_H = 132, 60, 6
-Q_PCT_RIGHT = 236                     # 百分比右端(留给倒计时)
-Q_CD_RIGHT = 282                      # 倒计时右端
-Q_NUM_W = 50                          # 百分比数值列宽
-Q_CD_W = 44                           # 倒计时列宽(容得下 28d23h)
+Q_BAR_X, Q_BAR_W, Q_BAR_H = 84, 100, 6  # 条左端贴近窗口名,右端让位百分比列
+Q_PCT_RIGHT = 226                     # 百分比右端
+Q_NUM_W = 40                          # 百分比数字列宽(数字与百分号分开绘制)
+Q_PCT_GAP = 3                         # 数字与百分号之间的间距
+Q_CD_RIGHT, Q_CD_W = 282, 50          # 倒计时右端与列宽(与百分比同字号,容得下 29d08h)
 Q_CAP_RECT = (16, 72, 220, 14)        # tab 1 cap 文案
+
+
+def header_text() -> str:
+    """顶行左侧"日期 + 时钟"文本(绘制与 tab 居中测量共用同一份,避免两处漂移)。"""
+    return f"{S.today_label()}  {time.strftime('%H:%M')}"
+
+
+def tab_x(head: str | None = None) -> int:
+    """tab 控件左端 x:居中于左侧日期时钟文本与右侧"次数"之间(等距)。
+
+    右侧按 TAB_RIGHT_REF 的参照宽度算,故次数位数变化时 tab 不抖动;
+    左侧文本宽度变化(9:59→10:00、9月→10月)时跟随居中,全天仅数次。
+    """
+    head = header_text() if head is None else head
+    fm_head = QFontMetrics(_font(T.F_UI, T.FS_HEAD, weight=QFont.DemiBold))
+    fm_req = QFontMetrics(_font(T.F_MONO, T.FS_REQ))
+    left_end = TOP_TEXT_X + fm_head.horizontalAdvance(head)
+    right_start = TOP_RIGHT - fm_req.horizontalAdvance(TAB_RIGHT_REF)
+    return int((left_end + right_start) / 2 - TAB_W / 2)
 
 
 def is_click(press: QPoint, release: QPoint) -> bool:
@@ -324,12 +345,11 @@ class FloatCard(QWidget):
                 self.quota_fetched_at, time.time(), T.QUOTA_MAX_AGE_S)
         return bool(self.error_text)
 
-    def _draw_tabs(self, p: QPainter) -> None:
-        """顶行右侧两格 tab:激活格橙字 + 橙淡填充,未激活灰字。"""
-        x, y, w, h = TAB_BOX
-        cw = w // 2
+    def _draw_tabs(self, p: QPainter, x: int) -> None:
+        """顶行分段控件:激活格橙字 + 橙淡填充,未激活灰字;x 由 tab_x() 居中算出。"""
+        cw = TAB_W // 2
         for i, label in enumerate(TAB_LABELS):
-            cell = QRect(x + i * cw, y, cw, h)
+            cell = QRect(x + i * cw, TAB_Y, cw, TAB_H)
             active = i == self.tab
             if active:
                 p.setPen(Qt.NoPen)
@@ -354,11 +374,11 @@ class FloatCard(QWidget):
         p.drawEllipse(QRectF(TOP_DOT[0], TOP_DOT[1],
                              TOP_DOT[2], TOP_DOT[3]))
         # 日期标签(每帧按当前日期生成,跨零点自动换日) + 24h 时钟
+        head = header_text()
         p.setPen(_color(T.C_TEXT_HEAD))
         p.setFont(_font(T.F_UI, T.FS_HEAD, weight=QFont.DemiBold))
         p.drawText(QRect(TOP_TEXT_X, 12, 210, 18),
-                   Qt.AlignLeft | Qt.AlignVCenter,
-                   f"{S.today_label()}  {time.strftime('%H:%M')}")
+                   Qt.AlignLeft | Qt.AlignVCenter, head)
         if self.tab == 0:
             # 次数/状态(仅用量页;套餐页的状态由底部状态行承担)
             p.setPen(_color(T.C_TEXT_DIM if not self.error_text
@@ -366,7 +386,7 @@ class FloatCard(QWidget):
             p.setFont(_font(T.F_MONO, T.FS_REQ))
             p.drawText(QRect(TOP_RIGHT - 150, 12, 150, 18),
                        Qt.AlignRight | Qt.AlignVCenter, self.reqs_text)
-        self._draw_tabs(p)
+        self._draw_tabs(p, tab_x(head))
 
     def _draw_main(self, p: QPainter, now: float) -> None:
         # 大数字 + cap
@@ -529,14 +549,21 @@ class FloatCard(QWidget):
                                   else color))
                 p.drawRoundedRect(QRect(Q_BAR_X, int(cy) - 3,
                                         int(fill), Q_BAR_H), 3, 3)
-            # 已用百分比
+            # 已用百分比:数字与百分号分两段绘制,中间留 Q_PCT_GAP 的空隙
             p.setPen(_color(T.C_TEXT_MODEL_VAL))
             p.setFont(_font(T.F_MONO, T.FS_Q_PCT, True))
-            p.drawText(QRect(Q_PCT_RIGHT - Q_NUM_W, int(cy) - 9,
-                             Q_NUM_W, 18),
-                       Qt.AlignRight | Qt.AlignVCenter,
-                       f"{round(val)}%" if (win and win.percent is not None)
-                       else "--")
+            if win is not None and win.percent is not None:
+                pct_w = p.fontMetrics().horizontalAdvance("%")
+                p.drawText(QRect(Q_PCT_RIGHT - Q_NUM_W, int(cy) - 9,
+                                 Q_NUM_W - pct_w - Q_PCT_GAP, 18),
+                           Qt.AlignRight | Qt.AlignVCenter, f"{round(val)}")
+                p.drawText(QRect(Q_PCT_RIGHT - pct_w, int(cy) - 9,
+                                 pct_w, 18),
+                           Qt.AlignRight | Qt.AlignVCenter, "%")
+            else:
+                p.drawText(QRect(Q_PCT_RIGHT - Q_NUM_W, int(cy) - 9,
+                                 Q_NUM_W, 18),
+                           Qt.AlignRight | Qt.AlignVCenter, "--")
             # 重置倒计时
             p.setPen(_color(T.C_TEXT_LABEL))
             p.setFont(_font(T.F_MONO, T.FS_Q_CD))
@@ -627,11 +654,11 @@ class FloatCard(QWidget):
 
     # —— 拖动 / 点击 ——
     @staticmethod
-    def tab_at(pos: QPoint) -> int | None:
-        """卡片坐标判断落在哪一格 tab;不在控件内返回 None。"""
-        x, y, w, h = TAB_BOX
-        if x <= pos.x() <= x + w and y <= pos.y() <= y + h:
-            return 0 if pos.x() < x + w / 2 else 1
+    def tab_at(pos: QPoint, x: int | None = None) -> int | None:
+        """卡片坐标判断落在哪一格 tab;x 缺省取当前居中位置;不在控件内返回 None。"""
+        x = tab_x() if x is None else x
+        if x <= pos.x() <= x + TAB_W and TAB_Y <= pos.y() <= TAB_Y + TAB_H:
+            return 0 if pos.x() < x + TAB_W / 2 else 1
         return None
 
     def mousePressEvent(self, ev) -> None:
