@@ -85,6 +85,41 @@
 
 ---
 
+## 套餐额度取数（quota.py）
+
+**主代码**：`quota.py`
+**模型/数据**：OpenCode Go 用量接口（`GET https://opencode.ai/zen/go/v1/usage`）+ ZCode 供应商配置（`~/.zcode/v2/provider_config.json`，只读）中的 API Key
+**关联决策**：无
+
+### 一句话定位
+
+回答"OpenCode Go 套餐还剩多少额度"的唯一取数口：API Key 发现、多出口（环境变量代理 → Windows 系统代理 → 直连）降级请求、响应解析与倒计时格式化；纯逻辑无 Qt，供 `main.py` 后台线程调用、`card.py` 消费结果。
+
+### 用户入口
+
+| 入口 | 能做什么 |
+|---|---|
+| `find_api_key` | 环境变量 `OPENCODE_GO_API_KEY` 优先，否则只读 ZCode 配置取 `opencode-go-chat` 的 key |
+| `fetch_usage` | 取一次三窗口额度（`rolling`/`weekly`/`monthly` 的 percent 与 resetsAt） |
+| `countdown` / `hottest` / `is_stale` | 卡片展示用纯函数（倒计时、最热窗口、陈旧判定） |
+
+### 行为预期（可验证，已逐条核实代码）
+
+1. **key 只读不写**：只读打开 `~/.zcode/v2/provider_config.json`（路径可用 `ZCODE_PROVIDER_CONFIG` 覆盖），缺失/损坏/无该供应商一律返回空串，不抛异常。出处：`quota.py:find_api_key`（`tests/test_quota.py::test_find_api_key_*` 锁住）。
+2. **出口候选顺序**：`OPENCODE_GO_PROXY`（显式指定）→ 环境变量代理 → Windows 系统代理（注册表 WinINET，未开启/读取失败则跳过）→ 直连；首个成功的出口被记住并在后续请求里优先复用，鉴权类 HTTP 401/403 不再换出口重试。出处：`quota.py:default_candidates/Fetcher._ordered/get_json`（`tests/test_quota.py::test_fetcher_*`、`test_default_candidates_order` 锁住；2026-09-24 真机实测：环境变量代理 7897 失效 → 自动旁路到系统代理 17891 成功）。
+3. **每候选一份新 Request**：`urllib` 的 `ProxyHandler` 会就地改写 Request（`set_proxy`），复用同一对象会让失效候选污染后续候选（含直连）导致"全失败"；故候选循环内每次新建 Request。出处：`quota.py:Fetcher._request`（`tests/test_quota.py::test_each_candidate_gets_fresh_request` 锁住）。
+4. **解析口径**：三窗口固定按 `rolling/weekly/monthly` 顺序输出中文标签「5 小时/本周/本月」；percent 接受数字或数字字符串并钳到 0~100，不可解析为 None；`resetsAt` 非法/缺失为 None；三窗口全无 percent 或整体结构不符才抛 `QuotaError`。出处：`quota.py:parse_usage`（`tests/test_quota.py::test_parse_*`、`test_percent_parsing_and_clamp` 锁住）。
+5. **失败降级**：请求失败（超时/连接被拒/HTTP 非 200/解析失败）抛 `QuotaError`，由调用方保留上次数值并标记状态；`Fetcher` 不写任何本地状态。出处：`quota.py:Fetcher.get_json`、`main.py:_QuotaThread.run`。
+6. **倒计时格式**：`<1h → "13m"`；`<1d → "2h13m"`；`≥1d → "3d09h"`；已过 → `"已重置"`；无重置时间 → 空串。出处：`quota.py:countdown`（`tests/test_quota.py::test_countdown_*` 锁住）。
+
+### 反直觉/易误解（踩坑预警）
+
+- **接口只给百分比，没有绝对值**：实测响应只有 `{status, percent, resetsAt}`，没有"已用/总额"数字，所以卡片只能显示已用百分比与重置倒计时，别指望换算成美元或 token 数。
+- **环境变量代理可能是坏的**：本机 `HTTPS_PROXY` 指向失效端口 7897，而真正可用的是系统代理 17891；只依赖 env 代理会全盘失败，故必须保留系统代理与直连兜底。
+- **官方没有公开用量 API**（anomalyco/opencode#31084 已确认），该端点是社区用法，官方若变更需要跟着改。
+
+---
+
 ## 统计聚合（stats.py）
 
 **主代码**：`stats.py`
@@ -170,7 +205,7 @@
 
 ### 一句话定位
 
-324×246 窗体（296×218 内容 + 四周投影边距）纸感浅色无边框置顶横卡的全部视觉呈现：QPainter 自绘布局、数值摊放补间、增量飘字、占比条与呼吸灯动画、底部当前对话行、拖动交互。
+324×246 窗体（296×218 内容 + 四周投影边距）纸感浅色无边框置顶横卡的全部视觉呈现：QPainter 自绘布局、数值摊放补间、增量飘字、占比条与呼吸灯动画、底部当前对话行、拖动交互。顶行右侧两格 tab 分两页：tab 0 = 用量（默认页，既有内容）、tab 1 = 套餐（OpenCode Go 三窗口额度）。
 
 ### 行为预期（可验证，已逐条核实代码）
 
@@ -184,6 +219,12 @@
 8. **异常态独立配色**：数据源异常时呼吸灯与状态文字变红橙 `C_ERROR`，与第三模型蓝色区分；异常期间摊放池与显示保持不动。出处：`card.py:_draw_top/set_error`。
 9. **顶行日期与时钟**：标签为「M月D日 周X + 24 小时制 HH:MM」，每帧按当前时间生成——跨零点自动换日、时钟每秒刷新。出处：`card.py:_draw_top`。
 10. **底部当前对话行**（y=180 分隔线 + 行中心 198）：左侧会话标题（省略号截断,吃行首剩余宽度），右侧「N（P%）」——N 为该会话全部总计走 `stats.cny`（只出现万/亿与千分位整数），P = 缓存÷总计取整百分比，total 为 0 时 P 显示 0；不显示冒号或"总"等标签字；字号 `FS_CUR`(11px)；【反向约束】这行数字不走 drip 池、无飘字/补间，`set_data` 每轮整值直显真实汇总（`cur` 不在 `TWEEN_KEYS`）；无会话数据时整行不画。出处：`card.py:_draw_cur/set_data`（`tests/test_card_cur.py` 锁住，含"不进池"反向测试与"当日数字照常进池"正向对照）。
+11. **tab 控件与切换**：顶行右侧两格「用量 / 套餐」（`TAB_BOX`，位于日期与"N 次"之间的空白带，二者坐标未动）；激活格橙字 + 橙淡填充（`C_ACCENT` alpha 0.14），未激活灰字；默认 `tab = 0`。出处：`card.py:_draw_tabs/tab_at`（`tests/test_card_tab.py::test_default_tab_is_usage`、`test_tab_at_hit_test` 锁住）。
+12. **点击与拖动区分**：按下→释放位移 ≤ `CLICK_MAX_MOVE`(4px) 且落在 tab 控件内才切页；位移超过阈值按拖动处理（移动窗口并保存位置），纯点击不再写 `state.json`。出处：`card.py:is_click/mouseReleaseEvent`（`tests/test_card_tab.py::test_click_on_tab_switches_and_click_does_not_save_pos`、`test_drag_keeps_tab_and_saves_pos` 锁住）。
+13. **tab 0 内容零改动**：切到套餐页再切回，tab 0 的补间目标、drip 摊放池、真实值累积都照常（切页不重绘 tab 0 内容、也不动其状态）。出处：`card.py:paintEvent` 分派（`tests/test_card_tab.py::test_tab0_numbers_and_pool_untouched_by_tab_switch` 锁住）。
+14. **套餐页排版**（`_draw_quota`）：大数字 = 已用百分比最高的窗口（`quota.hottest`，达 `QUOTA_WARN_PCT`(90) 转 `C_ERROR`），cap 文案「{窗口名}额度已用」；三行固定 `5 小时/本周/本月`（行中心 `Q_ROW_CY`，复用 tab 0 的色点/行高几何）+ 进度条（`Q_BAR_X/W`，已用填充，达阈值转警示色）+ 已用百分比（右端 `Q_PCT_RIGHT`）+ 重置倒计时（右端 `Q_CD_RIGHT`，`quota.countdown`）；底部一行状态（`_quota_status`）：正常「套餐额度 · 更新于 HH:MM」灰字、陈旧「数据陈旧 · 最后更新 HH:MM」警示色、失败「<原因> · 显示 HH:MM 数据」警示色、未配置灰字。出处：`card.py:_draw_quota/_quota_status`（`tests/test_card_tab.py::test_quota_page_renders_every_state` 等锁住）。
+15. **呼吸灯随当前页**：tab 0 看用量数据源异常，tab 1 看额度状态（未配置不算故障、不转红；失败或陈旧转 `C_ERROR`）。出处：`card.py:_top_problem`（`tests/test_card_tab.py::test_light_follows_current_tab` 锁住）。
+16. **额度数值不进 drip 池**：`set_quota` 首帧落位、其后走 `TWEEN_MS` 补间，不产生飘字、不入池。出处：`card.py:set_quota`（`tests/test_card_tab.py::test_quota_values_never_enter_drip_pool`、`test_quota_first_set_snaps_then_tweens` 锁住）。
 
 ### 已知待修问题
 
@@ -212,6 +253,7 @@
 3. **位置校验**：恢复位置时窗口须与任一屏幕相交，否则落回主屏右下默认位。出处：`main.py:_restore_pos`。
 4. **轮询装配当前会话**：每轮轮询追加固定 3 条查询（最近活跃会话、会话标题、会话用量）+ 一次 leveldb 扫描，查询条数不随 `model_usage` 行数增长；装配结果经 `current.SessionResolver` 裁决后交给 `card.set_data` 的 `cur` 字段。出处：`main.py:_current_session`（`tests/test_current.py` 裁决行为锁住）。
 5. **托盘菜单四项**：跟随显示、开机自启动、显示/隐藏、退出；自启动勾选状态初始化自注册表现状（先设状态后连信号，初始化不产生注册表写），勾选变化即写/删 Run 键，失败回弹勾选并托盘气泡提示。出处：`main.py` 托盘装配、`_toggle_autostart`。
+6. **额度轮询独立线程**：`_QuotaThread` 启动即拉一次、此后每 `QUOTA_POLL_MS`(60s) 一次（QThread 内 sleep，不占 UI 线程）；结果经信号回主线程 `card.set_quota`，失败只上报错误文案（卡片保留上次数值并标陈旧）；未找到 Key 则不起线程，直接置"未配置"提示；退出时 `stop()` + `wait(2000)` 收线程（分片睡眠，最坏 0.2s 退出）。本条失败不影响 1.5s 的本地库轮询与 tab 0 显示。出处：`main.py:_QuotaThread/_on_quota/_cleanup`。
 
 ### 已知待修问题
 

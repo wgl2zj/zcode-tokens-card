@@ -1,11 +1,15 @@
-"""入口:应用装配(单实例唤醒、系统托盘、数据轮询、窗口位置恢复、ZCode 聚焦联动)。"""
+"""入口:应用装配(单实例唤醒、系统托盘、数据轮询、窗口位置恢复、ZCode 聚焦联动)。
+
+用量轮询读本地库(1.5s);套餐额度轮询走外部 HTTP(60s,后台线程),
+两条链路互不影响:额度失败只影响卡片"套餐"页的状态行。
+"""
 
 import ctypes
 import sys
 import time
 from ctypes import wintypes
 
-from PySide6.QtCore import QRect, Qt, QTimer
+from PySide6.QtCore import QRect, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (QApplication, QMenu, QSystemTrayIcon)
@@ -14,9 +18,10 @@ import autostart
 import card as card_mod
 import config as cfg
 import current
+import quota
 import reader
 import stats as S
-from theme import POLL_MS, WIN_H, WIN_W
+from theme import POLL_MS, QUOTA_POLL_MS, WIN_H, WIN_W
 
 SERVER_NAME = "zcode-tokens-float-card"
 FOCUS_CHECK_MS = 400
@@ -79,6 +84,46 @@ def notify_running_instance() -> bool:
     return False
 
 
+def _quota_error_text(exc: Exception) -> str:
+    """把取数异常压成状态行短文案(网络细节留 last_route,不上界面)。"""
+    if isinstance(exc, quota.QuotaError):
+        return str(exc).split(";")[-1].strip() or "额度取数失败"
+    return f"额度取数失败（{type(exc).__name__}）"
+
+
+class _QuotaThread(QThread):
+    """后台额度轮询:HTTP 请求不占 UI 线程。
+
+    单轮失败只上报错误文案(卡片保留上次数值并标陈旧),线程继续下一轮;
+    分片睡眠以便退出时快速收敛。
+    """
+
+    result = Signal(object, str, float)   # (windows | None, 错误文案, epoch 秒)
+
+    def __init__(self, key: str, interval_ms: int, parent=None):
+        super().__init__(parent)
+        self._key = key
+        self._interval_s = max(5.0, interval_ms / 1000.0)
+        self._stop = False
+
+    def run(self) -> None:
+        # 出口候选(Fetcher)在线程内创建并复用:记住首个成功出口
+        fetcher = quota.Fetcher()
+        while not self._stop:
+            try:
+                q = quota.fetch_usage(self._key, fetcher=fetcher)
+                self.result.emit(q.windows, "", q.fetched_at.timestamp())
+            except Exception as exc:          # 含 QuotaError 与未预期异常
+                self.result.emit(None, _quota_error_text(exc), 0.0)
+            slept = 0.0
+            while slept < self._interval_s and not self._stop:
+                time.sleep(0.2)
+                slept += 0.2
+
+    def stop(self) -> None:
+        self._stop = True
+
+
 class App:
     """装配卡片、托盘、轮询与单实例服务。"""
 
@@ -135,6 +180,17 @@ class App:
         self.poll.timeout.connect(self._poll)
         self._poll()
         self.poll.start(POLL_MS)
+
+        # 套餐额度轮询(tab 1):没配 Key 就不起线程,直接置未配置提示
+        self.quota_thread: _QuotaThread | None = None
+        key = quota.find_api_key()
+        if key:
+            self.quota_thread = _QuotaThread(key, QUOTA_POLL_MS, self.app)
+            self.quota_thread.result.connect(self._on_quota)
+            self.quota_thread.start()
+        else:
+            self.card.set_quota_error("未配置 OpenCode Go（需 API Key）",
+                                      kind="config")
 
     # —— 窗口位置 ——
     def _restore_pos(self) -> None:
@@ -205,6 +261,9 @@ class App:
     def _cleanup(self) -> None:
         self.card.save_pos()
         self.tray.hide()
+        if self.quota_thread is not None:
+            self.quota_thread.stop()
+            self.quota_thread.wait(2000)      # 分片睡眠,最坏 0.2s 内退出
         if self.conn is not None:
             self.conn.close()
 
@@ -224,6 +283,13 @@ class App:
         except Exception as exc:  # 库锁/schema 变化/路径缺失 → 降级显示
             self.conn = None
             self.card.set_error(f"{type(exc).__name__}")
+
+    def _on_quota(self, windows, error: str, fetched_at: float) -> None:
+        """额度轮询结果落地:成功更新数值,失败只改状态(保留上次值)。"""
+        if windows:
+            self.card.set_quota(windows, fetched_at)
+        else:
+            self.card.set_quota_error(error or "额度取数失败")
 
     def _current_session(self) -> dict | None:
         """当前查看会话的用量:库内最近活跃为主,leveldb 切换动作可覆盖。

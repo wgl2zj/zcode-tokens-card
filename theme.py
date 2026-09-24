@@ -66,5 +66,13 @@ SMOOTH_MAX_DURATION_MS = 600_000  # 单段摊放时长封顶 10 分钟(隔夜不
 SMOOTH_JITTER_MIN = 0.7        # 每跳释放量抖动下限(×均分值),防相邻跳重样
 SMOOTH_JITTER_MAX = 1.3        # 每跳释放量抖动上限
 
+# —— 套餐额度(tab 2:OpenCode Go 三窗口) ——
+QUOTA_POLL_MS = 60_000        # 额度轮询间隔(外部接口,低频;失败不忙等)
+QUOTA_MAX_AGE_S = 180         # 距上次成功超过该秒数 → 标"数据陈旧"(容忍连续两次失败)
+QUOTA_WARN_PCT = 90           # 已用百分比达到此值 → 大数字转警示色
+FS_TAB = 9.5                  # 顶行 tab 标签
+FS_Q_PCT = 13.5               # 额度百分比(与模型数值同档)
+FS_Q_CD = 10                  # 额度重置倒计时(mono 小字)
+
 # —— 数据源 ——
 DB_PATH = None                # 由 reader 模块按用户主目录解析,此处不留路径常量

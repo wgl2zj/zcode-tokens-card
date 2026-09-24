@@ -1,20 +1,24 @@
-"""横卡窗口:QPainter 全量自绘(布局、动画、拖动交互)。
+"""横卡窗口:QPainter 全量自绘(布局、动画、拖动、tab 切换交互)。
 
 纸感浅色皮肤(选型稿 01 号):296x218,暖白纸底 + 细灰线 + 橙强调。
+顶行右侧两格 tab:0 = 用量(今日 TOKENS 三列 + 模型 TOP3 + 当前对话行),
+1 = 套餐(OpenCode Go 三窗口额度)。tab 0 为默认页,内容与坐标自始未动。
 数值显示走 drip 摊放:每段增量按其产生时长 2~4s 一跳分步释放(封顶 10 分钟)。
 底部"当前对话"行例外:不走池、无飘字,每轮轮询整值直显(用户约定)。
 """
 
+import datetime
 import math
 import time
 
-from PySide6.QtCore import QRect, QRectF, Qt, QTimer
+from PySide6.QtCore import QPoint, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import (QColor, QFont, QFontMetrics, QPainter,
                            QPainterPath, QPen)
 from PySide6.QtWidgets import QWidget
 
 import config as cfg
 import drip
+import quota as Q
 import stats as S
 import theme as T
 
@@ -43,6 +47,26 @@ CUR_ROW_CY = 198                      # 当前对话行中心
 CUR_X0, CUR_RIGHT = 16, 282           # 当前行可用横向范围
 MI_KEYS = ("输入", "输出", "缓存")
 TWEEN_KEYS = ("total", "input", "output", "cache", "m0", "m1", "m2")
+
+# —— tab 切换(顶行右侧分段控件;放在日期与"次数"之间的空白带,不改两处既有坐标) ——
+TAB_BOX = (156, 12, 64, 18)           # x, y, w, h;两格等宽
+TAB_LABELS = ("用量", "套餐")
+CLICK_MAX_MOVE = 4                    # 按下→释放位移 ≤ 该值视为点击,否则视为拖动
+
+# —— tab 1:套餐额度布局(复用 tab 0 的行几何,保持同一视觉语言) ——
+Q_ROW_CY = (110, 138, 166)            # 三个额度窗口行中心
+Q_BAR_X, Q_BAR_W, Q_BAR_H = 132, 60, 6
+Q_PCT_RIGHT = 236                     # 百分比右端(留给倒计时)
+Q_CD_RIGHT = 282                      # 倒计时右端
+Q_NUM_W = 50                          # 百分比数值列宽
+Q_CD_W = 44                           # 倒计时列宽(容得下 28d23h)
+Q_CAP_RECT = (16, 72, 220, 14)        # tab 1 cap 文案
+
+
+def is_click(press: QPoint, release: QPoint) -> bool:
+    """按下→释放位移不超过 CLICK_MAX_MOVE 视为点击(与拖动区分)。"""
+    return (release - press).manhattanLength() <= CLICK_MAX_MOVE
+
 
 
 def _font(family: str, px: float, bold: bool = False,
@@ -118,7 +142,16 @@ class FloatCard(QWidget):
         self.inc_big = None            # (text, t0)
         self.inc_mi = [None, None, None]
         self._first = True
+        self.tab = 0                   # 0 = 用量(默认,既有页) 1 = 套餐
+        self.quota_windows: list = []  # quota.Window 列表(空 = 尚无额度数据)
+        self.quota_fetched_at = 0.0    # 上次成功取数的 epoch 秒
+        self.quota_error = ""          # 非空 = 异常/未配置文案
+        self.quota_error_kind = ""     # "config" = 未配置(灰字,非故障)
+        self.q_tw = {f"q{i}": _Tween(0.0) for i in range(3)}
+        self.q_tw["qbig"] = _Tween(0.0)
+        self._q_first = True
         self._drag_offset = None
+        self._press_pos = None
 
         self._frame_timer = QTimer(self)
         self._frame_timer.timeout.connect(self._on_frame)
@@ -178,6 +211,43 @@ class FloatCard(QWidget):
         self.error_text = msg
         self.reqs_text = "数据源异常"
 
+    # —— 额度数据入口(tab 1:OpenCode Go 套餐) ——
+    def set_quota(self, windows: list, fetched_at: float = 0.0) -> None:
+        """额度到账:更新三窗口数值并清除异常标记。
+
+        首帧直接落位(不从 0 爬升),此后走 T.TWEEN_MS 补间,与卡片既有动效
+        语言一致;额度变化以分钟计,故不进 drip 池、不产生飘字。
+        """
+        if windows:
+            self.quota_windows = list(windows)
+            self.quota_fetched_at = float(fetched_at or time.time())
+        self.quota_error = ""
+        self.quota_error_kind = ""
+        for i in range(3):
+            tw = self.q_tw[f"q{i}"]
+            target = (self.quota_windows[i].percent or 0.0
+                      if i < len(self.quota_windows) else 0.0)
+            if self._q_first:
+                tw.snap(target)
+            else:
+                tw.to(target)
+        hottest = Q.hottest(self.quota_windows)
+        big = hottest.percent if hottest else 0.0
+        if self._q_first:
+            self.q_tw["qbig"].snap(big)
+        else:
+            self.q_tw["qbig"].to(big)
+        self._q_first = False
+
+    def set_quota_error(self, msg: str, kind: str = "io") -> None:
+        """额度异常:保留上次数值(若有),只改状态标记。
+
+        kind="config" 表示尚未配置 API Key(灰字提示,不算故障);
+        其余(kind="io")按故障处理,状态文字与呼吸灯转警示色。
+        """
+        self.quota_error = msg
+        self.quota_error_kind = kind
+
     def _bar_targets(self) -> list[float]:
         sh = S.shares(self.models)
         return [max(M_TRACK_W * 0.02, sh[i] * M_TRACK_W)
@@ -218,9 +288,12 @@ class FloatCard(QWidget):
         self._draw_shadow(p)
         self._draw_card(p)
         self._draw_top(p, now)
-        self._draw_main(p, now)
-        self._draw_models(p, now)
-        self._draw_cur(p)
+        if self.tab == 1:
+            self._draw_quota(p, now)
+        else:
+            self._draw_main(p, now)
+            self._draw_models(p, now)
+            self._draw_cur(p)
 
     def _draw_shadow(self, p: QPainter) -> None:
         """落地投影:多层圆角矩形向外扩、alpha 递减,贴近设计稿 5% 柔影。"""
@@ -242,11 +315,36 @@ class FloatCard(QWidget):
         p.setPen(QPen(_color(T.C_CARD_BORDER), T.BORDER_W))
         p.drawPath(path)
 
+    def _top_problem(self) -> bool:
+        """顶行警示态来源随 tab 走:tab 0 看用量数据源,tab 1 看额度状态。"""
+        if self.tab == 1:
+            if self.quota_error and self.quota_error_kind != "config":
+                return True
+            return bool(self.quota_windows) and Q.is_stale(
+                self.quota_fetched_at, time.time(), T.QUOTA_MAX_AGE_S)
+        return bool(self.error_text)
+
+    def _draw_tabs(self, p: QPainter) -> None:
+        """顶行右侧两格 tab:激活格橙字 + 橙淡填充,未激活灰字。"""
+        x, y, w, h = TAB_BOX
+        cw = w // 2
+        for i, label in enumerate(TAB_LABELS):
+            cell = QRect(x + i * cw, y, cw, h)
+            active = i == self.tab
+            if active:
+                p.setPen(Qt.NoPen)
+                p.setBrush(_color(T.C_ACCENT, 0.14))
+                p.drawRoundedRect(QRectF(cell), 4, 4)
+            p.setPen(_color(T.C_ACCENT if active else T.C_TEXT_LABEL))
+            p.setFont(_font(T.F_UI, T.FS_TAB,
+                            weight=QFont.DemiBold if active else -1))
+            p.drawText(cell, Qt.AlignCenter, label)
+
     def _draw_top(self, p: QPainter, now: float) -> None:
         # 呼吸灯:2.4s 周期,中点最暗(0.4),异常态变红橙
         phase = (now * 1000 % T.BREATH_MS) / T.BREATH_MS
         a = 1 - 0.6 * math.sin(math.pi * phase)
-        core = T.C_ERROR if self.error_text else T.C_ACCENT
+        core = T.C_ERROR if self._top_problem() else T.C_ACCENT
         cx, cy = TOP_DOT[0] + 4, TOP_DOT[1] + 4
         p.setPen(Qt.NoPen)
         for r, fa in ((14, 0.15), (10, 0.30)):
@@ -261,11 +359,14 @@ class FloatCard(QWidget):
         p.drawText(QRect(TOP_TEXT_X, 12, 210, 18),
                    Qt.AlignLeft | Qt.AlignVCenter,
                    f"{S.today_label()}  {time.strftime('%H:%M')}")
-        # 次数/状态
-        p.setPen(_color(T.C_TEXT_DIM if not self.error_text else T.C_ERROR))
-        p.setFont(_font(T.F_MONO, T.FS_REQ))
-        p.drawText(QRect(TOP_RIGHT - 150, 12, 150, 18),
-                   Qt.AlignRight | Qt.AlignVCenter, self.reqs_text)
+        if self.tab == 0:
+            # 次数/状态(仅用量页;套餐页的状态由底部状态行承担)
+            p.setPen(_color(T.C_TEXT_DIM if not self.error_text
+                            else T.C_ERROR))
+            p.setFont(_font(T.F_MONO, T.FS_REQ))
+            p.drawText(QRect(TOP_RIGHT - 150, 12, 150, 18),
+                       Qt.AlignRight | Qt.AlignVCenter, self.reqs_text)
+        self._draw_tabs(p)
 
     def _draw_main(self, p: QPainter, now: float) -> None:
         # 大数字 + cap
@@ -359,6 +460,102 @@ class FloatCard(QWidget):
                        Qt.AlignRight | Qt.AlignVCenter,
                        S.cny(val) if name else "")
 
+    # —— tab 1:套餐额度(OpenCode Go 三窗口) ——
+    def _quota_status(self, stale: bool) -> tuple[str, str]:
+        """底部状态行内容:(文案, 颜色);未配置是灰字,故障是警示色。"""
+        when = time.strftime("%H:%M", time.localtime(self.quota_fetched_at))
+        if self.quota_error:
+            color = (T.C_TEXT_LABEL if self.quota_error_kind == "config"
+                     else T.C_ERROR)
+            if self.quota_windows:
+                return f"{self.quota_error} · 显示 {when} 数据", color
+            return self.quota_error, color
+        if not self.quota_windows:
+            return "等待额度数据…", T.C_TEXT_LABEL
+        if stale:
+            return f"数据陈旧 · 最后更新 {when}", T.C_ERROR
+        return f"套餐额度 · 更新于 {when}", T.C_TEXT_LABEL
+
+    def _draw_quota(self, p: QPainter, now: float) -> None:
+        """三窗口已用百分比 + 进度条 + 重置倒计时,底部一行状态。
+
+        大数字取"已用最高"的窗口(最值得关注的那个),达 QUOTA_WARN_PCT 转
+        警示色;行几何与 tab 0 的模型行对齐,保持同一视觉语言。
+        """
+        windows = self.quota_windows
+        stale = Q.is_stale(self.quota_fetched_at, time.time(),
+                           T.QUOTA_MAX_AGE_S)
+        hottest = Q.hottest(windows)
+        big = self.q_tw["qbig"].value(now)
+        warn = hottest is not None and big >= T.QUOTA_WARN_PCT
+        p.setPen(_color(T.C_ERROR if warn else T.C_TEXT_BIG))
+        p.setFont(_font(T.F_MONO, T.FS_BIG, True, 1.0))
+        p.drawText(QRect(*BIG_RECT), Qt.AlignLeft | Qt.AlignVCenter,
+                   f"{round(big)}%" if hottest else "--")
+        p.setPen(_color(T.C_TEXT_LABEL))
+        p.setFont(_font(T.F_UI, T.FS_CAP, spacing=2.5))
+        cap = (f"{hottest.label}额度已用" if hottest
+               else (self.quota_error or "套餐额度"))
+        p.drawText(QRect(*Q_CAP_RECT), Qt.AlignLeft | Qt.AlignVCenter,
+                   p.fontMetrics().elidedText(cap, Qt.ElideRight,
+                                              Q_CAP_RECT[2]))
+        # 横分隔线(与 tab 0 模型区同位)
+        p.setPen(QPen(_color(T.C_DIVIDER), 1))
+        p.drawLine(18, DIVIDER_H_Y, M_VAL_RIGHT, DIVIDER_H_Y)
+        fm_name = _font(T.F_UI, T.FS_MNAME, weight=QFont.DemiBold)
+        for i, cy in enumerate(Q_ROW_CY):
+            win = windows[i] if i < len(windows) else None
+            label = win.label if win else Q.WINDOW_KEYS[i][1]
+            color = T.MODEL_COLORS[i]
+            # 色点(窗口标识,与模型行同形)
+            p.setPen(Qt.NoPen)
+            p.setBrush(_color(color))
+            p.drawRoundedRect(QRect(M_DOT_X, int(cy) - 4,
+                                    M_DOT_SIZE, M_DOT_SIZE), 2, 2)
+            # 窗口名
+            p.setPen(_color(T.C_TEXT_VALUE))
+            p.setFont(fm_name)
+            p.drawText(QRect(M_NAME_X, int(cy) - 9, M_NAME_W, 18),
+                       Qt.AlignLeft | Qt.AlignVCenter, label)
+            # 进度条(底 + 已用填充)
+            p.setPen(Qt.NoPen)
+            p.setBrush(_color(T.C_DIVIDER))
+            p.drawRoundedRect(QRect(Q_BAR_X, int(cy) - 3,
+                                    Q_BAR_W, Q_BAR_H), 3, 3)
+            val = self.q_tw[f"q{i}"].value(now)
+            if win is not None and win.percent is not None:
+                fill = max(3.0, min(float(Q_BAR_W), Q_BAR_W * val / 100.0))
+                p.setBrush(_color(T.C_ERROR if val >= T.QUOTA_WARN_PCT
+                                  else color))
+                p.drawRoundedRect(QRect(Q_BAR_X, int(cy) - 3,
+                                        int(fill), Q_BAR_H), 3, 3)
+            # 已用百分比
+            p.setPen(_color(T.C_TEXT_MODEL_VAL))
+            p.setFont(_font(T.F_MONO, T.FS_Q_PCT, True))
+            p.drawText(QRect(Q_PCT_RIGHT - Q_NUM_W, int(cy) - 9,
+                             Q_NUM_W, 18),
+                       Qt.AlignRight | Qt.AlignVCenter,
+                       f"{round(val)}%" if (win and win.percent is not None)
+                       else "--")
+            # 重置倒计时
+            p.setPen(_color(T.C_TEXT_LABEL))
+            p.setFont(_font(T.F_MONO, T.FS_Q_CD))
+            p.drawText(QRect(Q_CD_RIGHT - Q_CD_W, int(cy) - 9,
+                             Q_CD_W, 18),
+                       Qt.AlignRight | Qt.AlignVCenter,
+                       Q.countdown(win.resets_at) if win else "")
+        # 底部状态行
+        text, color = self._quota_status(stale)
+        p.setPen(QPen(_color(T.C_DIVIDER), 1))
+        p.drawLine(18, DIVIDER_H2_Y, CUR_RIGHT, DIVIDER_H2_Y)
+        font = _font(T.F_UI, T.FS_CUR)
+        p.setPen(_color(color))
+        p.setFont(font)
+        p.drawText(QRect(CUR_X0, CUR_ROW_CY - 9, CUR_RIGHT - CUR_X0, 18),
+                   Qt.AlignLeft | Qt.AlignVCenter,
+                   QFontMetrics(font).elidedText(text, Qt.ElideRight,
+                                                 CUR_RIGHT - CUR_X0))
+
     def _draw_cur(self, p: QPainter) -> None:
         """底部当前对话行:左标题(截断),右消耗量 + 缓存占比。
 
@@ -428,11 +625,20 @@ class FloatCard(QWidget):
                          rect.height()), Qt.AlignRight | Qt.AlignVCenter, text)
         return True
 
-    # —— 拖动 ——
+    # —— 拖动 / 点击 ——
+    @staticmethod
+    def tab_at(pos: QPoint) -> int | None:
+        """卡片坐标判断落在哪一格 tab;不在控件内返回 None。"""
+        x, y, w, h = TAB_BOX
+        if x <= pos.x() <= x + w and y <= pos.y() <= y + h:
+            return 0 if pos.x() < x + w / 2 else 1
+        return None
+
     def mousePressEvent(self, ev) -> None:
         if ev.button() == Qt.LeftButton:
-            self._drag_offset = (ev.globalPosition().toPoint()
-                                 - self.frameGeometry().topLeft())
+            pos = ev.globalPosition().toPoint()
+            self._press_pos = pos
+            self._drag_offset = pos - self.frameGeometry().topLeft()
             ev.accept()
 
     def mouseMoveEvent(self, ev) -> None:
@@ -441,9 +647,20 @@ class FloatCard(QWidget):
             ev.accept()
 
     def mouseReleaseEvent(self, ev) -> None:
+        """位移小视为点击(tab 切换或忽略),位移大才是拖动并保存位置。"""
         if self._drag_offset is not None:
-            self._drag_offset = None
-            cfg.save(pos_x=self.x(), pos_y=self.y())
+            release = ev.globalPosition().toPoint()
+            press, self._drag_offset = self._press_pos, None
+            self._press_pos = None
+            if press is not None and is_click(press, release):
+                local = ev.position().toPoint()
+                hit = self.tab_at(QPoint(local.x() - T.SHADOW_PAD,
+                                         local.y() - T.SHADOW_PAD))
+                if hit is not None:
+                    self.tab = hit
+                    self.update()
+            else:
+                cfg.save(pos_x=self.x(), pos_y=self.y())
             ev.accept()
 
     def save_pos(self) -> None:
