@@ -84,32 +84,57 @@ def test_speed_of_rejects_untrustworthy_samples():
 
 
 def test_gen_rates_latest_and_per_model():
-    """当前速率取最近一次可信样本;各模型各取自己最近一次(多模型可并行)。"""
+    """顶行取最近一次可信样本;各模型各取自己最近一次(多模型可并行)。"""
     now = 1_000_000
     rows = [                                    # 已按 completed_at 倒序
         ("b", 200, now - 5_000, now - 4_000),   # 最近:b 200/1s
         ("a", 300, now - 9_000, now - 6_000),   # a 300/3s
         ("a", 999, now - 30_000, now - 20_000),  # a 更早,不得覆盖上面那条
     ]
-    latest, by_model = S.gen_rates(rows, now, fresh_ms=60_000)
+    latest, last, active = S.gen_rates(rows, now, fresh_ms=60_000)
     assert latest == pytest.approx(200.0)
-    assert by_model["a"] == pytest.approx(100.0)
-    assert by_model["b"] == pytest.approx(200.0)
+    assert last["a"] == pytest.approx(100.0)
+    assert last["b"] == pytest.approx(200.0)
+    assert active == {"a", "b"}
 
 
-def test_gen_rates_drops_stale_and_skips_bad_samples():
-    """超新鲜期的样本一律不算(空闲不显示陈旧速率);坏样本跳过续看更早的。"""
+def test_gen_rates_keeps_last_rate_after_idle():
+    """模型行口径:样本过期后仍给"最后一次"的读数,只是不再算正在生成。
+
+    与顶行分流:顶行超期即 None(显示"空闲"),模型行照常给数——空闲时仍可
+    回顾刚才各模型跑多快;是否还在跑由 active 集合标记。
+    """
     now = 1_000_000
-    assert S.gen_rates([("a", 300, now - 200_000, now - 190_000)],
-                       now, fresh_ms=60_000) == (None, {})
-    assert S.gen_rates([], now, fresh_ms=60_000) == (None, {})
+    rows = [("a", 300, now - 200_000, now - 190_000)]
+    latest, last, active = S.gen_rates(rows, now, fresh_ms=60_000)
+    assert latest is None                        # 顶行:空闲
+    assert last["a"] == pytest.approx(300 / 10)  # 模型行:最后的读数
+    assert active == set()
+
+
+def test_gen_rates_active_boundary():
+    """新鲜期边界:期内(含恰好到期)进 active,超 1ms 不进。"""
+    now = 1_000_000
+    rows = [("fresh", 100, now - 61_000, now - 60_000),   # 恰 60s
+            ("stale", 100, now - 61_001, now - 60_001)]   # 超 1ms
+    latest, last, active = S.gen_rates(rows, now, fresh_ms=60_000)
+    assert latest == pytest.approx(100.0)
+    assert active == {"fresh"}
+    assert set(last) == {"fresh", "stale"}
+
+
+def test_gen_rates_skips_bad_samples_and_empty():
+    """坏样本退到该模型更早的候选;无行时三项全空。"""
+    now = 1_000_000
+    assert S.gen_rates([], now, fresh_ms=60_000) == (None, {}, set())
     rows = [
         ("a", 300, now - 5_000, now - 4_950),   # 窗口 50ms → 坏样本
         ("a", 240, now - 9_000, now - 8_000),   # 240/1s → 应被取到
     ]
-    latest, by_model = S.gen_rates(rows, now, fresh_ms=60_000)
+    latest, last, active = S.gen_rates(rows, now, fresh_ms=60_000)
     assert latest == pytest.approx(240.0)
-    assert by_model["a"] == pytest.approx(240.0)
+    assert last["a"] == pytest.approx(240.0)
+    assert active == {"a"}
 
 
 def test_fmt_rate_idle_clamp_and_unit():

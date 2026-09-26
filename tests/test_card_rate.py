@@ -1,8 +1,9 @@
 """card 生成速率显示:反向测试(不进池)+ 排版几何锁。
 
-预期来源(用户约定):顶行显示当前速率、占原轮次的位置;轮次移到 cap 行
-「今日 TOKENS」右侧;前三模型行各自显示速率(不带单位、字号同三列数值、
-与累计之间单空格)。速率是瞬时读数,不走 drip 池、无飘字、不补间。
+预期来源(用户约定):顶行显示当前速率(超期显「空闲」)、占原轮次的位置;
+轮次移到 cap 行「今日 TOKENS」右侧;前三模型行各自显示速率(不带单位、字号同
+三列数值、与累计之间单空格),取该模型最后一次的读数——仍在生成(样本新鲜)
+的转红,停下来后的历史读数保持灰。速率是瞬时读数,不走 drip 池、无飘字、不补间。
 """
 
 import os
@@ -39,30 +40,57 @@ def test_rate_not_in_tween_keys():
     """结构保证:速率字段不在补间/池字段表里。"""
     assert "rate" not in card_mod.TWEEN_KEYS
     assert "model_rates" not in card_mod.TWEEN_KEYS
+    assert "active_models" not in card_mod.TWEEN_KEYS
 
 
 def test_rate_never_enters_drip_pool(card):
     """反向:速率变化不产生任何池增量;池里只可能出现补间字段。"""
-    card.set_data({**_day(1000), "rate": 239.0, "model_rates": {"m": 239.0}})
+    card.set_data({**_day(1000), "rate": 239.0, "model_rates": {"m": 239.0},
+                   "active_models": {"m"}})
     assert card._sched.pending() == {}
-    card.set_data({**_day(1600), "rate": 500.0, "model_rates": {"m": 500.0}})
+    card.set_data({**_day(1600), "rate": 500.0, "model_rates": {"m": 500.0},
+                   "active_models": {"m"}})
     pending = card._sched.pending()
     assert pending                                   # 当日累计增量照常入池
     assert set(pending) <= set(card_mod.TWEEN_KEYS)  # 但池里没有速率
     assert card.rate == 500.0                        # 速率整值直显
     assert card.model_rates == {"m": 500.0}
+    assert card.active_models == {"m"}
+
+
+def test_active_models_follows_each_set_data(card):
+    """活跃集合与速率同路整值替换:新一轮给空即全灰,不残留上轮的红。"""
+    card.set_data({**_day(1000), "model_rates": {"a": 239.0, "b": 88.0},
+                   "active_models": {"a"}})
+    assert card.active_models == {"a"}
+    card.set_data({**_day(1600), "model_rates": {"a": 239.0, "b": 88.0},
+                   "active_models": []})
+    assert card.active_models == set()
 
 
 def test_usage_page_renders_every_rate_state(card):
-    """用量页在"无速率/有速率/全空闲/超上限/数据源异常"下都完整渲染。"""
+    """用量页在"无速率/有速率/全空闲/活跃与历史并存/超上限/异常"下都完整渲染。"""
     for extra in ({}, {"rate": 239.0, "model_rates": {"m": 239.0}},
-                  {"rate": None, "model_rates": {}},
-                  {"rate": 1500.0, "model_rates": {"m": 1500.0}}):
+                  {"rate": None, "model_rates": {"m": 88.0}},
+                  {"rate": 150.0, "model_rates": {"m": 88.0, "n": 150.0},
+                   "active_models": {"n"}},
+                  {"rate": 1500.0, "model_rates": {"m": 1500.0},
+                   "active_models": {"m"}}):
         card.set_data({**_day(1200, count=5124), "models": [("m", 1200)],
                        **extra})
         card.grab()
     card.set_error("OperationalError")
     card.grab()
+
+
+# —— 模型行速率配色(活跃红 / 历史灰) ——
+
+def test_model_rate_color_active_red_else_grey():
+    """正在生成(样本新鲜)→ 红;最后一次的历史读数 → 灰。"""
+    import theme as T
+    assert card_mod.model_rate_color(True) == T.C_RATE_ACTIVE
+    assert card_mod.model_rate_color(False) == T.C_TEXT_LABEL
+    assert T.C_RATE_ACTIVE != T.C_TEXT_LABEL
 
 
 # —— 顶行右端与 cap 行轮次 ——

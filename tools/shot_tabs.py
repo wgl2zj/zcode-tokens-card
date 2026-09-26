@@ -39,6 +39,29 @@ def main() -> None:
         print("saved shot_tab_usage_error.png  顶行右端 =",
               a.card.error_text or "（无）")
 
+    def snap_rate_states() -> None:
+        # 速率三态构造场景:顶行「空闲」(灰) + 三个模型行显示各自的最后读数,
+        # 其中仍在新鲜期内(正在生成)的模型速率应为红色,其余保持灰。
+        # 注入后立即 grab(下一轮 _poll 会覆盖真实数据,同 tick 内不会被插入)。
+        a.card.tab = 0
+        a.card.set_data({
+            "count": 5124,
+            "input": 12_000_000, "output": 900_000, "cache": 8_000_000,
+            "total": 12_900_000,
+            "models": [("GLM-5.3-Flash", 6_000_000),
+                       ("deepseek-v4.1-flash", 4_000_000),
+                       ("K3-256K", 2_000_000)],
+            "rate": None,                                # 顶行:当前空闲
+            "model_rates": {"GLM-5.3-Flash": 132.0,
+                            "deepseek-v4.1-flash": 87.0,
+                            "K3-256K": 210.0},
+            "active_models": {"deepseek-v4.1-flash"},    # 仅它在跑 → 仅它转红
+            "cur": None,
+        })
+        a.card.grab().save(str(OUT / "shot_tab_rate_states.png"))
+        print("saved shot_tab_rate_states.png  顶行 =",
+              a.card.rate, " 活跃 =", a.card.active_models)
+
     def snap_quota() -> None:
         a.card.tab = 1
         a.card.grab().save(str(OUT / "shot_tab_quota.png"))
@@ -56,6 +79,7 @@ def main() -> None:
     # 额度首次取数含失效代理旁路(约 4~5s),故套餐页快照放到 7.5s 之后
     QTimer.singleShot(3000, snap_usage)
     QTimer.singleShot(4500, snap_usage_error)
+    QTimer.singleShot(5500, snap_rate_states)
     QTimer.singleShot(7500, snap_quota)
     QTimer.singleShot(8000, snap_quota_error)
     app.exec()

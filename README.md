@@ -1,6 +1,6 @@
 # ZCode Tokens Card
 
-**English**: A paper-style floating card for Windows that shows your daily [ZCode](https://z.ai) desktop token usage and your OpenCode Go plan quota in real time — two tabs: usage (total, input/output/cache breakdown, top models, current conversation, plus live generation speed both overall and per top-3 model) and plan (5-hour / weekly / monthly used percentage with reset countdown). Read-only, zero writes to ZCode data.
+**English**: A paper-style floating card for Windows that shows your daily [ZCode](https://z.ai) desktop token usage and your OpenCode Go plan quota in real time — two tabs: usage (total, input/output/cache breakdown, top models, current conversation, plus live generation speed overall and per top-3 model, with models still generating highlighted red) and plan (5-hour / weekly / monthly used percentage with reset countdown). Read-only, zero writes to ZCode data.
 
 一个纸感风格的 Windows 桌面悬浮卡，实时展示你在 ZCode 桌面端的当日 token 用量与 OpenCode Go 套餐额度：顶行两格 tab 切换「用量」（总量大数字、输入/输出/缓存三列、模型占比、当前对话消耗，以及实时生成速度——顶行当前速率 + 前三模型各自速率）与「套餐」（5 小时 / 本周 / 本月已用百分比 + 重置倒计时）。对 ZCode 数据**只读、零写入**。
 
@@ -9,8 +9,8 @@
 ## 功能特性 / Features
 
 - **今日用量**：总量中文单位大数字（万/亿），输入、输出、缓存三列千分位完整数字，缓存行附占比小字；今日调用轮次显示在「今日 TOKENS」右侧。
-- **模型占比条**：当日 TOP3 模型平滑占比条（宽度按总量归一），每行右端附该模型的实时速率与当日累计。
-- **实时生成速度**：顶行显示当前速率（`tok/s`，取最近一次已完成调用的真实生成窗口，已排除首字等待），前三模型行各显示自己的速率。超过 60 秒没有新生成则显示「空闲」，不留陈旧数字。速率只统计 `output_tokens`，与含缓存的「今日总量」是两个口径。
+- **模型占比条**：当日 TOP3 模型平滑占比条（宽度按总量归一），每行右端附该模型的速率（正在生成时转红）与当日累计。
+- **实时生成速度**：顶行显示当前速率（`tok/s`，取最近一次已完成调用的真实生成窗口，已排除首字等待），超过 60 秒没有新生成则显示「空闲」。前三模型行各显示自己**最后一次**的速率——空闲时仍能回顾刚才各模型多快，其中 60 秒内还在生成的以红色标出，与已停下的灰色历史读数区分。速率只统计 `output_tokens`，与含缓存的「今日总量」是两个口径。
 - **增量摊放动画**：每段到账用量按其真实产生节奏（1~3 秒一跳）分步释放为显示值，数字常跳、显示落后有界且总量守恒；每次释放伴随「+N」飘字。
 - **当前对话行**：底部显示你正在查看的会话标题及其全部消耗（含缓存占比），跟随会话切换。
 - **套餐额度页**：顶行「套餐」tab 显示 OpenCode Go 三个窗口（5 小时 / 本周 / 本月）的已用百分比、进度条与重置倒计时；大数字取最接近上限的窗口，已用 ≥90% 转警示色。60 秒轮询一次，失败时保留上次数值并标注"数据陈旧"，未配置 Key 时灰字提示。

@@ -6,6 +6,8 @@
 数值显示走 drip 摊放:每段增量按其产生时长 2~4s 一跳分步释放(封顶 10 分钟)。
 两个例外都整值直显、不进池:"当前对话"行,以及生成速率(顶行当前速率 +
 模型行各自速率)——速率是瞬时读数,摊放会把它变成"假的速度"。
+顶行速率超 RATE_FRESH_MS 无新样本即显「空闲」;模型行显示各模型最后一次的
+读数(空闲时仍可回顾刚才多快),其中样本仍新鲜的(该模型正在生成)转红。
 """
 
 import datetime
@@ -96,6 +98,11 @@ def top_right_text(error: str, rate: float | None) -> str:
     return S.fmt_rate(rate, T.RATE_UNIT)
 
 
+def model_rate_color(active: bool) -> str:
+    """模型行速率颜色:正在生成(样本仍在新鲜期)→ 红;否则灰(最后一次的读数)。"""
+    return T.C_RATE_ACTIVE if active else T.C_TEXT_LABEL
+
+
 def tab_x(head: str | None = None) -> int:
     """tab 控件左端 x:居中于左侧日期时钟文本与右侧"次数"之间(等距)。
 
@@ -184,8 +191,9 @@ class FloatCard(QWidget):
             T.SMOOTH_TICK_MIN_MS, T.SMOOTH_TICK_MAX_MS,
             T.SMOOTH_MAX_DURATION_MS, T.SMOOTH_JITTER_MIN, T.SMOOTH_JITTER_MAX)
         self.models: list[tuple[str, int]] = []
-        self.rate: float | None = None        # 当前速率(tok/s);None = 空闲
-        self.model_rates: dict[str, float] = {}  # 各模型速率(整值直显,不走池)
+        self.rate: float | None = None        # 顶行当前速率(tok/s);None = 空闲
+        self.model_rates: dict[str, float] = {}  # 各模型最后速率(整值直显,不走池)
+        self.active_models: set[str] = set()   # 仍在生成(样本新鲜)的模型 → 速率转红
         self.cur: dict | None = None   # 当前对话用量(整值直显,不走池)
         self.bar_w = [0.0, 0.0, 0.0]
         self.inc_big = None            # (text, t0)
@@ -254,6 +262,7 @@ class FloatCard(QWidget):
         self.cur = d.get("cur")
         self.rate = d.get("rate")
         self.model_rates = d.get("model_rates") or {}
+        self.active_models = set(d.get("active_models") or ())
         self.reqs_text = S.fmt_count(d["count"])
         self.error_text = ""
 
@@ -517,7 +526,9 @@ class FloatCard(QWidget):
                 p.drawRoundedRect(QRect(M_TRACK_X, int(cy) - 3,
                                         int(w), M_TRACK_H), 3, 3)
             # 数值 + 该模型自己的速率:累计右对齐至 M_VAL_RIGHT;速率右对齐在它
-            # 左侧、中间隔一个空格(用户约定:速率不带单位、字号同三列数值)
+            # 左侧、中间隔一个空格(用户约定:速率不带单位、字号同三列数值)。
+            # 速率取该模型最后一次可信样本,仍未过期(该模型正在生成)时转红,
+            # 与"停下来后的历史读数"靠颜色区分。
             val = self.tw[f"m{i}"].value(now)
             acc = S.cny(val) if name else ""
             p.setPen(_color(T.C_TEXT_MODEL_VAL))
@@ -528,7 +539,7 @@ class FloatCard(QWidget):
                 rate_right = (M_VAL_RIGHT
                               - p.fontMetrics().horizontalAdvance(acc)
                               - RATE_GAP)
-                p.setPen(_color(T.C_TEXT_LABEL))
+                p.setPen(_color(model_rate_color(name in self.active_models)))
                 p.setFont(_font(T.F_MONO, T.FS_MI_V, True))
                 p.drawText(QRect(rate_right - 40, int(cy) - 9, 40, 18),
                            Qt.AlignRight | Qt.AlignVCenter,

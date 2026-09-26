@@ -94,26 +94,34 @@ def speed_of(output: int, first_token_at, completed_at,
 def gen_rates(rows, now_ms: float, fresh_ms: int,
               min_window_ms: int = RATE_MIN_WINDOW_MS,
               max_tok_s: float = RATE_MAX_TOK_S
-              ) -> tuple[float | None, dict[str, float]]:
-    """(当前速率, 各模型速率);rows 为 tuple 序列,须按 completed_at 倒序。
+              ) -> tuple[float | None, dict[str, float], set[str]]:
+    """(顶行当前速率, 各模型最后速率, 正在生成的模型集合)。
 
-    每个模型各取自己最近一次可信样本——多模型可并行生成,不是"最近一条
-    通吃"。完成时刻距今超过 fresh_ms 的样本一律不计:空闲时宁可不显示数字,
-    也不留一个陈旧速率被读成"此刻正在发生"(倒序下可直接停扫)。
+    rows 为 (model_id, output, first_token_at, completed_at) 序列,须按
+    completed_at 倒序,且每个模型给出最近若干条候选(reader.fetch_last_gen_rows)。
+    每个模型各取自己最近一次可信样本——多模型可并行生成,不是"最近一条通吃";
+    候选里最近一条不可信时退到该模型更早的候选。
+
+    两个口径分开:顶行当前速率只在新鲜期(fresh_ms)内取,超期返回 None(显示
+    "空闲");各模型速率是"最后一次"的读数,不限新鲜期——空闲时仍可回顾刚才
+    跑多快,是否还在跑由 active 集合标记(样本仍在新鲜期内)。
     """
-    by_model: dict[str, float] = {}
+    last: dict[str, float] = {}
+    active: set[str] = set()
     latest: float | None = None
     for mid, output, first_token_at, completed_at in rows:
-        if not completed_at or now_ms - completed_at > fresh_ms:
-            break                        # 倒序:其后只会更旧
+        if mid in last:
+            continue                        # 该模型已取到最近可信样本
         v = speed_of(output, first_token_at, completed_at,
                      min_window_ms, max_tok_s)
         if v is None:
-            continue
-        if latest is None:
-            latest = v
-        by_model.setdefault(mid, v)
-    return latest, by_model
+            continue                        # 坏样本:退到该模型更早的候选
+        last[mid] = v
+        if now_ms - completed_at <= fresh_ms:
+            active.add(mid)
+            if latest is None:
+                latest = v                  # 倒序:第一条新鲜可信样本即全局最新
+    return latest, last, active
 
 
 def fmt_rate(v: float | None, unit: str = "",

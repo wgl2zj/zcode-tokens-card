@@ -70,18 +70,23 @@ def fetch_session_title(conn: sqlite3.Connection, session_id: str) -> str:
     return (row[0] or "") if row else ""
 
 
-def fetch_recent_gen_rows(conn: sqlite3.Connection, day_start_ms: int,
-                          limit: int) -> list[tuple]:
-    """近期"已完成且有完整生成窗口"的调用行,按完成时刻倒序:
-    (model_id, output_tokens, first_token_at, completed_at)。
+def fetch_last_gen_rows(conn: sqlite3.Connection, day_start_ms: int,
+                        per_model: int) -> list[tuple]:
+    """各模型最近 per_model 条「已完成且有完整生成窗口」的调用行,整体按完成
+    时刻倒序:(model_id, output_tokens, first_token_at, completed_at)。
 
-    生成速率的取样口:只有 status=completed 且两个时间戳齐全的行才算得上
-    真实生成窗口。固定取 limit 条,不随 model_usage 行数增长。
+    生成速率的取样口:只有 status='completed' 且两个时间戳齐全、有输出的今日
+    行才算得上真实生成窗口。按模型分区各取最近若干条,故返回行数只随当日模型
+    数增长(每模型 ≤ per_model),不随 model_usage 行数增长;多取几条是为了让
+    上层在最近一条样本不可信时能退到该模型更早的样本。
     """
     return conn.execute(
-        "SELECT model_id, output_tokens, first_token_at, completed_at"
-        " FROM model_usage WHERE started_at >= ? AND status = 'completed'"
+        "SELECT model_id, output_tokens, first_token_at, completed_at FROM ("
+        " SELECT model_id, output_tokens, first_token_at, completed_at,"
+        " ROW_NUMBER() OVER (PARTITION BY model_id ORDER BY completed_at DESC)"
+        " AS rn FROM model_usage"
+        " WHERE started_at >= ? AND status = 'completed'"
         " AND output_tokens > 0 AND first_token_at IS NOT NULL"
-        " AND completed_at IS NOT NULL"
-        " ORDER BY completed_at DESC LIMIT ?",
-        (day_start_ms, limit)).fetchall()
+        " AND completed_at IS NOT NULL)"
+        " WHERE rn <= ? ORDER BY completed_at DESC",
+        (day_start_ms, per_model)).fetchall()
