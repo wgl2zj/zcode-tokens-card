@@ -6,3 +6,8 @@ shot*.png
 .pytest_cache/
 build/
 dist/
+
+# 插件工具在项目目录里留下的内部状态(含本机绝对路径与会话 ID)
+.mimosa/
+.v2c/
+.video_agent/
