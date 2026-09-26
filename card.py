@@ -2,9 +2,10 @@
 
 纸感浅色皮肤(选型稿 01 号):296x218,暖白纸底 + 细灰线 + 橙强调。
 顶行右侧两格 tab:0 = 用量(今日 TOKENS 三列 + 模型 TOP3 + 当前对话行),
-1 = 套餐(OpenCode Go 三窗口额度)。tab 0 为默认页,内容与坐标自始未动。
+1 = 套餐(OpenCode Go 三窗口额度)。tab 0 为默认页。
 数值显示走 drip 摊放:每段增量按其产生时长 2~4s 一跳分步释放(封顶 10 分钟)。
-底部"当前对话"行例外:不走池、无飘字,每轮轮询整值直显(用户约定)。
+两个例外都整值直显、不进池:"当前对话"行,以及生成速率(顶行当前速率 +
+模型行各自速率)——速率是瞬时读数,摊放会把它变成"假的速度"。
 """
 
 import datetime
@@ -25,6 +26,7 @@ import theme as T
 # —— 布局常量(px,296x218) ——
 BIG_RECT = (16, 34, 116, 36)          # 今日大数字
 CAP_RECT = (16, 72, 130, 14)          # "今日 TOKENS"
+CAP_COUNT_RIGHT = 140                 # 轮次右端(竖分隔线 142 前留 2px;槽位 39px)
 BIG_INC_RIGHT = 138                   # 大飘字右端(竖分隔线左侧)
 BIG_INC_TOP = 32
 DIVIDER_V_X = 142                     # 主区竖分隔线
@@ -37,8 +39,11 @@ DIVIDER_H_Y = 96                      # 模型区横分隔线
 MODEL_ROW_CY = (117, 142, 167)        # 模型行中心
 M_DOT_X, M_DOT_SIZE = 16, 8
 M_NAME_X, M_NAME_W = 32, 92
-M_TRACK_X, M_TRACK_W, M_TRACK_H = 132, 78, 6
+# 占比条 49px:右端让位给"速率 + 单空格 + 累计"最坏组合(9999.9万=60px + 空格
+# 7px + 999+=29px = 96px,最左到 x=186)。条末 181 与之最小间隔 5px,永不重叠。
+M_TRACK_X, M_TRACK_W, M_TRACK_H = 132, 49, 6
 M_VAL_RIGHT = 282
+RATE_GAP = 7                          # 速率与累计之间的单空格宽(Consolas 12.5 实测)
 TOP_DOT = (16, 17, 8, 8)              # 呼吸灯
 TOP_TEXT_X = 38
 TOP_RIGHT = 282
@@ -48,12 +53,19 @@ CUR_X0, CUR_RIGHT = 16, 282           # 当前行可用横向范围
 MI_KEYS = ("输入", "输出", "缓存")
 TWEEN_KEYS = ("total", "input", "output", "cache", "m0", "m1", "m2")
 
-# —— tab 切换(顶行分段控件;x 由 tab_x() 按"左侧日期时钟"与"右侧次数"动态居中) ——
+# —— tab 切换(顶行分段控件;x 由 tab_x() 按"左侧日期时钟"与"右侧当前速率"动态居中) ——
 TAB_Y, TAB_W, TAB_H = 12, 64, 18      # 两格等宽
 TAB_DEFAULT_X = 156                   # 兜底 x(尚未绘制时的命中判定)
-TAB_RIGHT_REF = "0000 次"             # 居中参照:右侧次数按 4 位数排布(位数变化不牵连 tab)
+# 居中参照:右侧当前速率按"000 t/s"排布(实测 42px,与原"0000 次"的 41px 仅差
+# 1px),故轮到速率占这位时 tab 位置不变;参照固定,数值位数变化不牵连 tab。
+TAB_RIGHT_REF = "000 t/s"
 TAB_LABELS = ("用量", "套餐")
 CLICK_MAX_MOVE = 4                    # 按下→释放位移 ≤ 该值视为点击,否则视为拖动
+# 右侧格标签墨迹右端相对 tab_x 的偏移:格起 x+32 + 居中留白 6 + 标签宽 20。
+# 顶行右端文案的可用宽度按它算,而不是按格子边界——格子右半是空白,
+# 按边界算会把本来放得下的文案(如"数据源异常"55px)误截断。
+TAB_LABEL_OFFSET = 58
+ERROR_TOP_TEXT = "数据源异常"          # 顶行右端的异常短句(与改版前一致)
 
 # —— tab 1:套餐额度布局(复用 tab 0 的行几何,保持同一视觉语言) ——
 Q_ROW_CY = (110, 138, 166)            # 三个额度窗口行中心
@@ -68,6 +80,20 @@ Q_CAP_RECT = (16, 72, 220, 14)        # tab 1 cap 文案
 def header_text() -> str:
     """顶行左侧"日期 + 时钟"文本(绘制与 tab 居中测量共用同一份,避免两处漂移)。"""
     return f"{S.today_label()}  {time.strftime('%H:%M')}"
+
+
+def top_right_text(error: str, rate: float | None) -> str:
+    """顶行右端文案:数据源异常优先(这一格原本就是轮次的位置),否则当前速率。
+
+    异常时这一格让给警示短句(与改版前一致:异常短句一直占这格);其余数值
+    ——含各模型速率——按既有容错约定保留上次值,状态由呼吸灯转红 + 短句标记,
+    与"今日总量在异常期间同样是上次值"是一个道理。
+    文案固定为短句、不暴露异常类名:实测 "sqlite3.OperationalError" 在
+    F_MONO 10.5 下宽 145px,而该格可用宽度只有约 58px,会越过 tab。
+    """
+    if error:
+        return ERROR_TOP_TEXT
+    return S.fmt_rate(rate, T.RATE_UNIT)
 
 
 def tab_x(head: str | None = None) -> int:
@@ -158,6 +184,8 @@ class FloatCard(QWidget):
             T.SMOOTH_TICK_MIN_MS, T.SMOOTH_TICK_MAX_MS,
             T.SMOOTH_MAX_DURATION_MS, T.SMOOTH_JITTER_MIN, T.SMOOTH_JITTER_MAX)
         self.models: list[tuple[str, int]] = []
+        self.rate: float | None = None        # 当前速率(tok/s);None = 空闲
+        self.model_rates: dict[str, float] = {}  # 各模型速率(整值直显,不走池)
         self.cur: dict | None = None   # 当前对话用量(整值直显,不走池)
         self.bar_w = [0.0, 0.0, 0.0]
         self.inc_big = None            # (text, t0)
@@ -221,16 +249,21 @@ class FloatCard(QWidget):
             if any(delta.values()):
                 self._sched.add(delta, self._now_ms())
         self.models = models
-        # 当前对话数字按用户约定不进 drip 池、不补间:每轮直接整值替换,
-        # 切换会话/刷新立即反映真实汇总。
+        # 当前对话数字与生成速率都按约定不进 drip 池、不补间:每轮直接整值替换。
+        # 速率是瞬时读数,走摊放会把它变成"假的速度"。
         self.cur = d.get("cur")
-        self.reqs_text = f"{d['count']} 次"
+        self.rate = d.get("rate")
+        self.model_rates = d.get("model_rates") or {}
+        self.reqs_text = S.fmt_count(d["count"])
         self.error_text = ""
 
     def set_error(self, msg: str) -> None:
-        """数据源异常:保留上次显示值,状态行与呼吸灯提示异常。"""
+        """数据源异常:保留上次显示值,顶行右端与呼吸灯提示异常。
+
+        异常的警示位占的是"当前速率"那格(轮次已归 cap 行),故此处不再改
+        reqs_text——轮次显示的是最后一次成功轮询到的值。
+        """
         self.error_text = msg
-        self.reqs_text = "数据源异常"
 
     # —— 额度数据入口(tab 1:OpenCode Go 套餐) ——
     def set_quota(self, windows: list, fetched_at: float = 0.0) -> None:
@@ -379,14 +412,19 @@ class FloatCard(QWidget):
         p.setFont(_font(T.F_UI, T.FS_HEAD, weight=QFont.DemiBold))
         p.drawText(QRect(TOP_TEXT_X, 12, 210, 18),
                    Qt.AlignLeft | Qt.AlignVCenter, head)
+        tx = tab_x(head)
         if self.tab == 0:
-            # 次数/状态(仅用量页;套餐页的状态由底部状态行承担)
+            # 当前速率(仅用量页;套餐页的状态由底部状态行承担)。
+            # 可用宽度按"不压到 tab 标签墨迹"算,超长文案截断兜底
+            room = max(0, TOP_RIGHT - (tx + TAB_LABEL_OFFSET))
+            text = top_right_text(self.error_text, self.rate)
             p.setPen(_color(T.C_TEXT_DIM if not self.error_text
                             else T.C_ERROR))
             p.setFont(_font(T.F_MONO, T.FS_REQ))
             p.drawText(QRect(TOP_RIGHT - 150, 12, 150, 18),
-                       Qt.AlignRight | Qt.AlignVCenter, self.reqs_text)
-        self._draw_tabs(p, tab_x(head))
+                       Qt.AlignRight | Qt.AlignVCenter,
+                       p.fontMetrics().elidedText(text, Qt.ElideRight, room))
+        self._draw_tabs(p, tx)
 
     def _draw_main(self, p: QPainter, now: float) -> None:
         # 大数字 + cap
@@ -398,6 +436,12 @@ class FloatCard(QWidget):
         p.setFont(_font(T.F_UI, T.FS_CAP, spacing=2.5))
         p.drawText(QRect(*CAP_RECT), Qt.AlignLeft | Qt.AlignVCenter,
                    "今日 TOKENS")
+        # 轮次右对齐到 cap 行右侧槽位(原在顶行,让位给当前速率);字号沿用 FS_REQ
+        p.setPen(_color(T.C_TEXT_DIM))
+        p.setFont(_font(T.F_MONO, T.FS_REQ))
+        p.drawText(QRect(CAP_RECT[0], CAP_RECT[1],
+                         CAP_COUNT_RIGHT - CAP_RECT[0], CAP_RECT[3]),
+                   Qt.AlignRight | Qt.AlignVCenter, self.reqs_text)
         # 大飘字
         if self.inc_big:
             if not self._draw_rise(p, self.inc_big, now, T.INC_RISE_MS,
@@ -472,13 +516,23 @@ class FloatCard(QWidget):
                 p.setBrush(_color(color))
                 p.drawRoundedRect(QRect(M_TRACK_X, int(cy) - 3,
                                         int(w), M_TRACK_H), 3, 3)
-            # 数值
+            # 数值 + 该模型自己的速率:累计右对齐至 M_VAL_RIGHT;速率右对齐在它
+            # 左侧、中间隔一个空格(用户约定:速率不带单位、字号同三列数值)
+            val = self.tw[f"m{i}"].value(now)
+            acc = S.cny(val) if name else ""
             p.setPen(_color(T.C_TEXT_MODEL_VAL))
             p.setFont(_font(T.F_MONO, T.FS_MVAL, True))
-            val = self.tw[f"m{i}"].value(now)
             p.drawText(QRect(M_VAL_RIGHT - 60, int(cy) - 9, 60, 18),
-                       Qt.AlignRight | Qt.AlignVCenter,
-                       S.cny(val) if name else "")
+                       Qt.AlignRight | Qt.AlignVCenter, acc)
+            if name:
+                rate_right = (M_VAL_RIGHT
+                              - p.fontMetrics().horizontalAdvance(acc)
+                              - RATE_GAP)
+                p.setPen(_color(T.C_TEXT_LABEL))
+                p.setFont(_font(T.F_MONO, T.FS_MI_V, True))
+                p.drawText(QRect(rate_right - 40, int(cy) - 9, 40, 18),
+                           Qt.AlignRight | Qt.AlignVCenter,
+                           S.fmt_rate(self.model_rates.get(name)))
 
     # —— tab 1:套餐额度(OpenCode Go 三窗口) ——
     def _quota_status(self, stale: bool) -> tuple[str, str]:

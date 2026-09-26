@@ -98,3 +98,60 @@ def test_fetch_latest_session_none(tmp_conn):
 def test_fetch_session_title(tmp_conn):
     assert reader.fetch_session_title(tmp_conn, "sess_a") == "会话甲"
     assert reader.fetch_session_title(tmp_conn, "sess_无") == ""
+
+
+# —— 生成速率取样(fetch_recent_gen_rows) ——
+
+@pytest.fixture
+def tmp_gen_conn(tmp_path):
+    """临时库(速率取样专用):造合格行与四类应排除行,验证筛选与排序。
+
+    独立于 tmp_conn 的简化表——那张表没有 status/first_token_at/
+    completed_at,不动它以免牵连既有测试。
+    """
+    path = tmp_path / "gen_test.sqlite"
+    conn = sqlite3.connect(str(path))
+    conn.execute(
+        "CREATE TABLE model_usage (model_id TEXT, started_at INTEGER,"
+        " output_tokens INT, first_token_at INT, completed_at INT,"
+        " status TEXT)")
+    start = S.today_start_ms()
+    conn.executemany(
+        "INSERT INTO model_usage VALUES (?,?,?,?,?,?)",
+        [
+            # 合格三行:完成时刻递增(b 最晚)
+            ("a", start + 1000, 300, start + 2000, start + 3000, "completed"),
+            ("a", start + 4000, 240, start + 5000, start + 6000, "completed"),
+            ("b", start + 7000, 200, start + 8000, start + 9000, "completed"),
+            # 各排除一类:未完成 / 无首字时刻 / 无输出 / 已取消 / 昨日
+            ("running", start + 8000, 500, start + 8500, None, "running"),
+            ("no_ft", start + 8000, 500, None, start + 9000, "completed"),
+            ("no_out", start + 8000, 0, start + 8500, start + 9000,
+             "completed"),
+            ("cancel", start + 8000, 500, start + 8500, start + 9000,
+             "cancelled"),
+            ("yesterday", start - 86400000, 999, start - 86399000,
+             start - 86398000, "completed"),
+        ])
+    conn.commit()
+    yield conn
+    conn.close()
+    assert REAL_DB_MARKER not in str(path)
+
+
+def test_fetch_recent_gen_rows_filters_and_orders(tmp_gen_conn):
+    """只收"已完成 + 两个时间戳齐全 + 有输出"的行,并按完成时刻倒序。"""
+    rows = reader.fetch_recent_gen_rows(tmp_gen_conn, S.today_start_ms(), 100)
+    assert [r[0] for r in rows] == ["b", "a", "a"]
+    assert [r[3] for r in rows] == sorted((r[3] for r in rows), reverse=True)
+
+
+def test_fetch_recent_gen_rows_respects_limit(tmp_gen_conn):
+    """固定条数取样:limit 生效(轮询成本不随 model_usage 行数增长)。"""
+    rows = reader.fetch_recent_gen_rows(tmp_gen_conn, S.today_start_ms(), 2)
+    assert [r[0] for r in rows] == ["b", "a"]
+
+
+def test_fetch_recent_gen_rows_excludes_yesterday(tmp_gen_conn):
+    rows = reader.fetch_recent_gen_rows(tmp_gen_conn, S.today_start_ms(), 100)
+    assert all(r[0] != "yesterday" for r in rows)

@@ -68,3 +68,20 @@ def fetch_session_title(conn: sqlite3.Connection, session_id: str) -> str:
     row = conn.execute("SELECT title FROM session WHERE id = ?",
                        (session_id,)).fetchone()
     return (row[0] or "") if row else ""
+
+
+def fetch_recent_gen_rows(conn: sqlite3.Connection, day_start_ms: int,
+                          limit: int) -> list[tuple]:
+    """近期"已完成且有完整生成窗口"的调用行,按完成时刻倒序:
+    (model_id, output_tokens, first_token_at, completed_at)。
+
+    生成速率的取样口:只有 status=completed 且两个时间戳齐全的行才算得上
+    真实生成窗口。固定取 limit 条,不随 model_usage 行数增长。
+    """
+    return conn.execute(
+        "SELECT model_id, output_tokens, first_token_at, completed_at"
+        " FROM model_usage WHERE started_at >= ? AND status = 'completed'"
+        " AND output_tokens > 0 AND first_token_at IS NOT NULL"
+        " AND completed_at IS NOT NULL"
+        " ORDER BY completed_at DESC LIMIT ?",
+        (day_start_ms, limit)).fetchall()

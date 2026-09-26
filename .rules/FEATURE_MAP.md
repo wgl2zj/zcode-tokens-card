@@ -67,6 +67,7 @@
 | 入口 | 能做什么 |
 |---|---|
 | `fetch_day_rows` / `fetch_top_models` | 今日卡片主数字与模型 TOP3 |
+| `fetch_recent_gen_rows` | 近期「已完成且有完整生成窗口」的调用行（生成速率取样口） |
 | `fetch_session_usage` | 单会话全部用量合计（当前对话行） |
 | `fetch_latest_session` / `fetch_session_title` | 库内最近活跃会话与标题（当前对话主信号） |
 
@@ -77,11 +78,17 @@
 3. **模型 TOP3**：`fetch_top_models` 按当日总量倒序取前三，不足三个按实际数量返回。出处：`reader.py:fetch_top_models`。
 4. **会话用量全期合计**：`fetch_session_usage` 不按天过滤，返回该会话 (总计,输入,输出,缓存) 四元组；无记录返回全 0。出处：`reader.py:fetch_session_usage`（`tests/test_reader.py::test_fetch_session_usage*` 锁住）。
 5. **最近活跃会话**：`fetch_latest_session` 按 `session.time_updated` 倒序取第一；无会话返回 None。出处：`reader.py:fetch_latest_session`（`tests/test_reader.py::test_fetch_latest_session*` 锁住）。
+6. **速率取样**：`fetch_recent_gen_rows` 只收 `status='completed'` 且 `first_token_at`/`completed_at` 齐全、`output_tokens>0` 的今日行，按 `completed_at` 倒序，固定取 `limit` 条（`theme.RATE_RECENT_ROWS`）；未完成/已取消/缺首字时刻/无输出/昨日行全部排除。出处：`reader.py:fetch_recent_gen_rows`（`tests/test_reader.py::test_fetch_recent_gen_rows_*` 三条锁住）。
+
+### 已知待修问题
+
+- **1. `model_id` 存在大小写变体，会拆成两行**：近 7 天实测 9 个不同 `model_id`，其中 `GLM-5.3-Flash`(4524 行) 与 `glm-5.3-flash`(415 行) 是同一个模型的不同写法，`GLM-5.3` 与 `glm-5.3` 同理。`fetch_top_models` 按 `model_id` 分组，故跨天看会把同一模型拆成两行（当天模型少时看不出来）。影响 tab 0 模型 TOP3 与速率行的归并口径；暂定不动（归一化会改动既有总量口径），先记录。
 
 ### 反直觉/易误解（踩坑预警）
 
 - **started_at 是毫秒时间戳**：比较基准必须用 `stats.today_start_ms()` 的毫秒值；传秒值会静默查不到数据。
 - **computed_total 已含缓存读取**：`input_tokens` 本身包含 cache_read，`computed_total = input + output`，不要把缓存列再加一遍。
+- **表里藏着一批没用上的字段**：`status`/`first_token_at`/`completed_at`/`duration_ms`/`time_to_first_token_ms`/`reasoning_tokens` 都是真实数据（生成速率就靠前三个）。`duration_ms` 含首字等待，别拿它当生成时长。
 
 ---
 
@@ -136,6 +143,10 @@
 2. **完整数字**：`full(v)` 输出千分位整数字符串（无单位），供三列小数额跳动可感知显示。出处：`stats.py:full`（`tests/test_stats.py::test_full_units` 锁住）。
 3. **聚合字段**：count/input/output/cache/total 五项，空输入返回全零。出处：`stats.py:aggregate`。
 4. **占比**：`shares` 按当日总量归一，总量为 0 时全 0。出处：`stats.py:shares`。
+5. **生成速率口径**：`speed_of` = `output_tokens ÷ ((completed_at − first_token_at)/1000)`，**分母排除首字等待**——真机样本整轮 13.765s 里 7.9s 在等首字，用 `duration_ms` 会把速度低估一半以上；且只算 output（与含缓存的"今日总量"是两个口径）。字段缺失、生成窗口 < `RATE_MIN_WINDOW_MS`(100ms)、速度 > `RATE_MAX_TOK_S`(2000) 一律返回 None（判为上游写入异常）。出处：`stats.py:speed_of`（`tests/test_stats.py::test_speed_of_*` 锁住）。
+6. **取速率**：`gen_rates` 单次遍历倒序行，**每个模型各取自己最近一次可信样本**（多模型可并行生成，不是"最近一条通吃"），同时给出全局当前速率；`completed_at` 距今超过 `fresh_ms` 的样本一律不计（倒序下直接停扫）——空闲宁可不显示数字，也不留陈旧速率。出处：`stats.py:gen_rates`（`tests/test_stats.py::test_gen_rates_*` 锁住）。
+7. **速率显示**：`fmt_rate` 无样本 → `空闲`；取整；超过 `RATE_MAX_SHOWN`(999) 钳成 `999+`；单位由调用方给（顶行带 `t/s`，模型行不带）。出处：`stats.py:fmt_rate`（`tests/test_stats.py::test_fmt_rate_idle_clamp_and_unit` 锁住）。
+8. **轮次显示**：`fmt_count` 4 位及以内 `5124次`（无空格），达万 `1万次`（**不带小数**）。槽位实测 39px，故 `5124 次`(41px)、`99999次`(41px)、`1.0万次`(40px) 三种写法都放不下、已否决。出处：`stats.py:fmt_count`（`tests/test_stats.py::test_fmt_count_units`、`tests/test_card_rate.py::test_cap_count_rejects_decimal_wan_form` 锁住）。
 
 ### 已知待修问题
 
@@ -205,7 +216,7 @@
 
 ### 一句话定位
 
-324×246 窗体（296×218 内容 + 四周投影边距）纸感浅色无边框置顶横卡的全部视觉呈现：QPainter 自绘布局、数值摊放补间、增量飘字、占比条与呼吸灯动画、底部当前对话行、拖动交互。顶行右侧两格 tab 分两页：tab 0 = 用量（默认页，既有内容）、tab 1 = 套餐（OpenCode Go 三窗口额度）。
+324×246 窗体（296×218 内容 + 四周投影边距）纸感浅色无边框置顶横卡的全部视觉呈现：QPainter 自绘布局、数值摊放补间、增量飘字、占比条与呼吸灯动画、底部当前对话行、拖动交互。顶行右侧两格 tab 分两页：tab 0 = 用量（默认页，含今日总量/三列/模型 TOP3/当前对话），tab 1 = 套餐（OpenCode Go 三窗口额度）。另有两处整值直显的例外：底部当前对话行、生成速率（顶行当前速率 + 模型行各自速率）。
 
 ### 行为预期（可验证，已逐条核实代码）
 
@@ -214,7 +225,7 @@
 3. **增量摊放**：每轮轮询到账的增量进 `drip` 池，按其产生间隔、1~3s 一跳分步释放为显示值（单段封顶 10 分钟）；显示全程 ≤ 真实值，到账停止后追平；首帧直接显示真实值不摊放；当日累计回退（跨零点/上游修正）时清池并立即对齐新一天真实值，旧量不再放出。出处：`card.py:set_data/_drip`、`drip.py`（`tests/test_stream.py` 锁住）。
 4. **增量飘字**：摊放调度每释放一跳，大数字右侧与三列右侧各自冒出「+释放量」上浮淡出；首帧与零释放时不飘。出处：`card.py:_drip/_draw_rise`。
 5. **三列完整数字**：输入/输出/缓存显示千分位完整数字（左对齐、无中文单位），缓存行占比小字紧跟数字右侧（`FS_PCT`）；标签列贴近竖分隔线（x=148），数值左对齐区 176~278（亿级 11 位数+占比不溢出）。出处：`card.py:_draw_main`、`stats.py:full`。
-6. **占比条**：宽度按当日总量归一平滑过渡，最小 2%；条区 132~210，模型数值右对齐至 282，互不重叠；不足三个模型时多余行不渲染。出处：`card.py:_bar_targets/_draw_models`。
+6. **占比条**：宽度按当日总量归一平滑过渡，绘制时最小 3px；条区 `M_TRACK_X ~ +M_TRACK_W`（132~181），右端让位给「速率 + 单空格 + 累计」列，互不重叠；不足三个模型时多余行不渲染。出处：`card.py:_bar_targets/_draw_models`（几何锁 `tests/test_card_rate.py::test_model_rate_column_never_overlaps_bar` 锁住——条宽定为 49px 就是按"最坏速率组 96px 仍留 5px 净空"推出来的）。
 7. **拖动**：左键拖动移动窗口，松开后位置写入 `state.json`。出处：`card.py:mouse*Event`。
 8. **异常态独立配色**：数据源异常时呼吸灯与状态文字变红橙 `C_ERROR`，与第三模型蓝色区分；异常期间摊放池与显示保持不动。出处：`card.py:_draw_top/set_error`。
 9. **顶行日期与时钟**：标签为「M月D日 周X + 24 小时制 HH:MM」，每帧按当前时间生成——跨零点自动换日、时钟每秒刷新。出处：`card.py:_draw_top`。
@@ -225,6 +236,10 @@
 14. **套餐页排版**（`_draw_quota`）：大数字 = 已用百分比最高的窗口（`quota.hottest`，达 `QUOTA_WARN_PCT`(90) 转 `C_ERROR`），cap 文案「{窗口名}额度已用」；三行固定 `5 小时/本周/本月`（行中心 `Q_ROW_CY`，复用 tab 0 的色点/行高几何）+ 进度条（左端 `Q_BAR_X` 贴近窗口名、右端让位百分比列）+ 已用百分比（数字与百分号分两段绘制、中间留 `Q_PCT_GAP` 间距，右端 `Q_PCT_RIGHT`）+ 重置倒计时（右端 `Q_CD_RIGHT`，字号与百分比同档 `FS_Q_CD = FS_Q_PCT`，`quota.countdown`）；底部一行状态（`_quota_status`）：正常「套餐额度 · 更新于 HH:MM」灰字、陈旧「数据陈旧 · 最后更新 HH:MM」警示色、失败「<原因> · 显示 HH:MM 数据」警示色、未配置灰字。出处：`card.py:_draw_quota/_quota_status`（`tests/test_card_tab.py::test_quota_page_renders_every_state` 等锁住）。
 15. **呼吸灯随当前页**：tab 0 看用量数据源异常，tab 1 看额度状态（未配置不算故障、不转红；失败或陈旧转 `C_ERROR`）。出处：`card.py:_top_problem`（`tests/test_card_tab.py::test_light_follows_current_tab` 锁住）。
 16. **额度数值不进 drip 池**：`set_quota` 首帧落位、其后走 `TWEEN_MS` 补间，不产生飘字、不入池。出处：`card.py:set_quota`（`tests/test_card_tab.py::test_quota_values_never_enter_drip_pool`、`test_quota_first_set_snaps_then_tweens` 锁住）。
+17. **顶行当前速率**：占用原「次数」的位置（右对齐 `TOP_RIGHT`），显示 `S.fmt_rate(rate, RATE_UNIT)`（如 `159 t/s`；空闲显 `空闲`）。`TAB_RIGHT_REF` 由 `0000 次`(41px) 换成 `000 t/s`(42px)，实测差 1px，**故 tab 位置不变（仍为 164）**；文案另按"不压到 tab 右侧格标签墨迹"的可用宽度（`TOP_RIGHT −(tab_x + TAB_LABEL_OFFSET)`≈58px）截断兜底。出处：`card.py:top_right_text/_draw_top`（`tests/test_card_rate.py::test_tab_position_unchanged_by_reference_swap`、`test_top_right_text_fits_beside_tab` 锁住）。
+18. **cap 行轮次**：`今日 TOKENS` 右侧、右对齐至 `CAP_COUNT_RIGHT`(140)，文案走 `S.fmt_count`（`5124次` / 万级 `1万次`），字号沿用 `FS_REQ`。槽位实测 39px。出处：`card.py:_draw_main`（`tests/test_card_rate.py::test_cap_count_slot_fits` 锁住）。
+19. **模型行各自速率**：每行在累计值左侧显示该模型自己的速率——右对齐、与累计之间隔**单空格** `RATE_GAP`(7px)、**不带单位**、字号 `FS_MI_V`(12.5px) 加粗、灰色 `C_TEXT_LABEL`；该模型无新鲜样本显示 `空闲`。与累计一样整值直显：**不进 drip 池、无飘字、不补间**（`TWEEN_KEYS` 不含 `rate`/`model_rates`）。出处：`card.py:_draw_models/set_data`（`tests/test_card_rate.py::test_rate_never_enters_drip_pool` 反向锁住）。
+20. **异常态顶行**：`set_error` 时顶行右端显示固定短句 `ERROR_TOP_TEXT`（「数据源异常」，与改版前一致），**不显示异常类名**——实测 `OperationalError` 97px、`sqlite3.OperationalError` 145px，都会越过 tab；轮次与各速率按既有容错约定保留上次值（与"今日总量在异常期间同样是上次值"同理），状态由呼吸灯转红 + 短句标记。出处：`card.py:top_right_text/set_error/_draw_top`（`tests/test_card_rate.py::test_error_keeps_cap_count_and_moves_warning_to_top_row` 锁住）。
 
 ### 已知待修问题
 
@@ -251,7 +266,8 @@
 1. **单实例**：重复启动时向已有实例发 `show` 后自身退出，不开第二个窗口。出处：`main.py:notify_running_instance`。
 2. **容错**：读库异常时保留上次显示并标记"数据源异常"（呼吸灯变红橙），下次轮询自动重连。出处：`main.py:_poll`。
 3. **位置校验**：恢复位置时窗口须与任一屏幕相交，否则落回主屏右下默认位。出处：`main.py:_restore_pos`。
-4. **轮询装配当前会话**：每轮轮询追加固定 3 条查询（最近活跃会话、会话标题、会话用量）+ 一次 leveldb 扫描，查询条数不随 `model_usage` 行数增长；装配结果经 `current.SessionResolver` 裁决后交给 `card.set_data` 的 `cur` 字段。出处：`main.py:_current_session`（`tests/test_current.py` 裁决行为锁住）。
+4. **轮询装配当前会话**：每轮轮询固定 **6 条查询**（当日行、模型 TOP3、近期生成行、最近活跃会话、会话标题、会话用量）+ 一次 leveldb 扫描，查询条数固定、不随 `model_usage` 行数线性增长；装配结果经 `current.SessionResolver` 裁决后交给 `card.set_data` 的 `cur` 字段。出处：`main.py:_poll/_current_session`（`tests/test_current.py` 裁决行为锁住）。
+7. **生成速率装配**：`_poll` 里 `fetch_recent_gen_rows` 取固定条数（`RATE_RECENT_ROWS`=120）后交 `S.gen_rates(rows, now_ms, RATE_FRESH_MS)`，结果写入 `d["rate"]`（当前速率）与 `d["model_rates"]`（各模型速率）一并 `set_data`；速率只算 output，与含缓存的"今日总量"口径不同，故单独取数、不并入 `aggregate`。出处：`main.py:_poll`。
 5. **托盘菜单四项**：跟随显示、开机自启动、显示/隐藏、退出；自启动勾选状态初始化自注册表现状（先设状态后连信号，初始化不产生注册表写），勾选变化即写/删 Run 键，失败回弹勾选并托盘气泡提示。出处：`main.py` 托盘装配、`_toggle_autostart`。
 6. **额度轮询独立线程**：`_QuotaThread` 启动即拉一次、此后每 `QUOTA_POLL_MS`(60s) 一次（QThread 内 sleep，不占 UI 线程）；结果经信号回主线程 `card.set_quota`，失败只上报错误文案（卡片保留上次数值并标陈旧）；未找到 Key 则不起线程，直接置"未配置"提示；退出时 `stop()` + `wait(2000)` 收线程（分片睡眠，最坏 0.2s 退出）。本条失败不影响 1.5s 的本地库轮询与 tab 0 显示。出处：`main.py:_QuotaThread/_on_quota/_cleanup`。
 

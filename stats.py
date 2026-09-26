@@ -4,6 +4,11 @@ import datetime
 
 _WEEK = "一二三四五六日"
 
+# —— 生成速率口径 ——
+RATE_MIN_WINDOW_MS = 100      # 生成窗口短于此值视为异常样本(防上游写入异常)
+RATE_MAX_TOK_S = 2000.0       # 速度上限,超过视为异常样本
+RATE_MAX_SHOWN = 999          # 显示钳制上限(槽位有限,超过显示 "999+")
+
 
 def cny(v: float) -> str:
     """中文进制单位:≥1亿 → X.XX亿;≥1万 → X.X万;否则千分位整数。"""
@@ -65,3 +70,71 @@ def shares(models: list[tuple[str, int]]) -> list[float]:
     if total <= 0:
         return [0.0] * len(models)
     return [v / total for _, v in models]
+
+
+def speed_of(output: int, first_token_at, completed_at,
+             min_window_ms: int = RATE_MIN_WINDOW_MS,
+             max_tok_s: float = RATE_MAX_TOK_S) -> float | None:
+    """单次调用的生成速度(tok/s);样本不可信返回 None。
+
+    分母取 completed_at - first_token_at:这才是真实生成窗口。不能用
+    duration_ms——它含首字等待,实测 TTFT 常占整轮一半(某轮 13.8s 里 7.9s
+    在等首字),用它会把速度系统性低估一半。
+    窗口短于 min_window_ms 或速度超过 max_tok_s,都判为上游写入异常。
+    """
+    if not output or not first_token_at or not completed_at:
+        return None
+    window_ms = completed_at - first_token_at
+    if window_ms < min_window_ms:
+        return None
+    v = output / (window_ms / 1000.0)
+    return v if v <= max_tok_s else None
+
+
+def gen_rates(rows, now_ms: float, fresh_ms: int,
+              min_window_ms: int = RATE_MIN_WINDOW_MS,
+              max_tok_s: float = RATE_MAX_TOK_S
+              ) -> tuple[float | None, dict[str, float]]:
+    """(当前速率, 各模型速率);rows 为 tuple 序列,须按 completed_at 倒序。
+
+    每个模型各取自己最近一次可信样本——多模型可并行生成,不是"最近一条
+    通吃"。完成时刻距今超过 fresh_ms 的样本一律不计:空闲时宁可不显示数字,
+    也不留一个陈旧速率被读成"此刻正在发生"(倒序下可直接停扫)。
+    """
+    by_model: dict[str, float] = {}
+    latest: float | None = None
+    for mid, output, first_token_at, completed_at in rows:
+        if not completed_at or now_ms - completed_at > fresh_ms:
+            break                        # 倒序:其后只会更旧
+        v = speed_of(output, first_token_at, completed_at,
+                     min_window_ms, max_tok_s)
+        if v is None:
+            continue
+        if latest is None:
+            latest = v
+        by_model.setdefault(mid, v)
+    return latest, by_model
+
+
+def fmt_rate(v: float | None, unit: str = "",
+             max_shown: int = RATE_MAX_SHOWN) -> str:
+    """速率显示:无样本 → "空闲";取整;超过 max_shown 钳成 "999+"。
+
+    单位由调用方决定:顶行带 t/s;模型行与累计共处一列,按约定不带。
+    """
+    if v is None:
+        return "空闲"
+    n = int(round(v))
+    text = f"{max_shown}+" if n > max_shown else str(n)
+    return f"{text} {unit}" if unit else text
+
+
+def fmt_count(n: int) -> str:
+    """轮次显示:4 位及以内 "5124次";达万改用中文单位 "1万次"(不带小数)。
+
+    cap 行右侧槽位实测仅 39px:"5124次" 35px、"99999次" 41px、"1.0万次"
+    40px 都放不下,故万级不带小数("1万次" 28px、"12万次" 34px)。
+    """
+    if n >= 10000:
+        return f"{n // 10000}万次"
+    return f"{n}次"

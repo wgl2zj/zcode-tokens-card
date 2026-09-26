@@ -21,7 +21,8 @@ import current
 import quota
 import reader
 import stats as S
-from theme import POLL_MS, QUOTA_POLL_MS, WIN_H, WIN_W
+from theme import (POLL_MS, QUOTA_POLL_MS, RATE_FRESH_MS, RATE_RECENT_ROWS,
+                   WIN_H, WIN_W)
 
 SERVER_NAME = "zcode-tokens-float-card"
 FOCUS_CHECK_MS = 400
@@ -278,6 +279,12 @@ class App:
             start = S.today_start_ms()
             d = S.aggregate(reader.fetch_day_rows(self.conn, start))
             d["models"] = reader.fetch_top_models(self.conn, start, 3)
+            # 生成速率:固定条数取样(不随表增长);只算 output,与含缓存的
+            # "今日总量"口径不同,故单独取数、不并入聚合
+            recent = reader.fetch_recent_gen_rows(self.conn, start,
+                                                  RATE_RECENT_ROWS)
+            d["rate"], d["model_rates"] = S.gen_rates(
+                recent, time.time() * 1000, RATE_FRESH_MS)
             d["cur"] = self._current_session()
             self.card.set_data(d)
         except Exception as exc:  # 库锁/schema 变化/路径缺失 → 降级显示

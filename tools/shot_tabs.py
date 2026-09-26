@@ -27,7 +27,17 @@ def main() -> None:
     def snap_usage() -> None:
         a.card.tab = 0
         a.card.grab().save(str(OUT / "shot_tab_usage.png"))
-        print("saved shot_tab_usage.png  count =", a.card.reqs_text)
+        print("saved shot_tab_usage.png  轮次 =", a.card.reqs_text,
+              " 当前速率 =", a.card.rate, " 各模型 =", a.card.model_rates)
+
+    def snap_usage_error() -> None:
+        # 用量页数据源异常态:顶行右端应显示固定短句「数据源异常」而非异常类名
+        # (类名可长到 145px,会压到 tab);轮次与其余数值保留最后一次成功值。
+        # 不打断轮询:set_error 后立即 grab,下一次 _poll 会自行恢复。
+        a.card.set_error("OperationalError")
+        a.card.grab().save(str(OUT / "shot_tab_usage_error.png"))
+        print("saved shot_tab_usage_error.png  顶行右端 =",
+              a.card.error_text or "（无）")
 
     def snap_quota() -> None:
         a.card.tab = 1
@@ -45,6 +55,7 @@ def main() -> None:
 
     # 额度首次取数含失效代理旁路(约 4~5s),故套餐页快照放到 7.5s 之后
     QTimer.singleShot(3000, snap_usage)
+    QTimer.singleShot(4500, snap_usage_error)
     QTimer.singleShot(7500, snap_quota)
     QTimer.singleShot(8000, snap_quota_error)
     app.exec()
