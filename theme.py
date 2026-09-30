@@ -82,5 +82,14 @@ RATE_FRESH_MS = 60_000        # 样本有效期:顶行超过此值判"空闲";�
 RATE_MODEL_CANDIDATES = 3     # 每个模型取的近期候选条数(返回行数只随模型数增长)
 RATE_UNIT = "t/s"             # 顶行当前速率的单位(模型行槽位有限,按约定不带)
 
+# —— 配置窗口(托盘右键「配置…」:套餐 API Key;独立窗口,不占卡片空间) ——
+KEYWIN_W = 400                # 内容宽(与卡片同圆角/同投影处理,窗口四周另加 SHADOW_PAD)
+KEYWIN_ROW_H = 26             # 来源选项行高
+KEYWIN_ROWS_MAX = 9           # 一次最多显示的行数,超出用滚轮翻看
+FS_SET_TITLE = 12             # 窗口标题
+FS_SET_EACH = 11              # 选项行主文字(与卡片当前对话行同档)
+FS_SET_HINT = 9               # 说明小字/选项行附注(与卡片占比小字同档)
+KEYWIN_BTN_W, KEYWIN_BTN_H = 64, 26   # 保存 / 取消
+
 # —— 数据源 ——
 DB_PATH = None                # 由 reader 模块按用户主目录解析,此处不留路径常量

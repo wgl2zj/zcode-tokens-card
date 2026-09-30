@@ -265,3 +265,33 @@ def test_quota_warn_color_at_threshold(card):
     """已用达 QUOTA_WARN_PCT 时大数字走警示色(阈值取自主题常量)。"""
     card.set_quota(_windows(percent=(95, 19, 9)), time.time())
     assert card.q_tw["qbig"].value() >= card_mod.T.QUOTA_WARN_PCT
+
+
+def test_quota_status_shows_key_only_when_configured(card):
+    """状态行仅在"界面里配过 key"时标出脱敏 key;默认自动发现时逐字与改版前一致。
+
+    反向对照(关键):未设标签时文案必须与旧行为完全相同——否则默认路径会平白
+    多占这一行(实测可用宽 266px,加 key 后 203px,余量足够但不该默认出现)。
+    """
+    card.set_quota(_windows(), time.time())
+    when = time.strftime("%H:%M", time.localtime(card.quota_fetched_at))
+    assert card._quota_status(stale=False) == (
+        f"套餐额度 · 更新于 {when}", card_mod.T.C_TEXT_LABEL)
+
+    card.set_quota_key_label("sk-ab1…cdef")          # 脱敏定长 = 6 + 1 + 4 字符
+    text, color = card._quota_status(stale=False)
+    assert text == f"套餐额度 · sk-ab1…cdef · 更新于 {when}"
+    assert color == card_mod.T.C_TEXT_LABEL
+    # 宽度上界:标签是脱敏定长(首 6 + 省略号 + 尾 4 = 11 字符),故整行宽有界;
+    # 实测真实字体下这一行 203px < 可用 266px(offscreen 是 CJK 回退字体、
+    # 宽度约为真实两倍,故此处只锁长度不锁像素宽,像素宽度由截图验收核对)。
+    assert len(card.quota_key_label) <= (Q.MASK_HEAD + 1 + Q.MASK_TAIL)
+
+
+def test_quota_status_key_not_shown_on_abnormal_states(card):
+    """陈旧/异常态不插 key:那两种状态下先行文案已经很长,该让位给原因本身。"""
+    card.set_quota_key_label("sk-ab1…cdef")
+    card.set_quota(_windows(), time.time() - card_mod.T.QUOTA_MAX_AGE_S - 5)
+    assert card._quota_status(stale=True)[0].startswith("数据陈旧")
+    card.set_quota_error("连接失败")
+    assert card._quota_status(stale=False)[0].startswith("连接失败")

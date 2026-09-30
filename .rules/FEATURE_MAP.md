@@ -95,35 +95,82 @@
 ## 套餐额度取数（quota.py）
 
 **主代码**：`quota.py`
-**模型/数据**：OpenCode Go 用量接口（`GET https://opencode.ai/zen/go/v1/usage`）+ ZCode 供应商配置（`~/.zcode/v2/provider_config.json`，只读）中的 API Key
+**模型/数据**：OpenCode Go 用量接口（`GET https://opencode.ai/zen/go/v1/usage`）+ ZCode 供应商配置（`~/.zcode/v2/provider_config.json`，只读）中的 API Key + 本机 `state.json` 的 `quota_api_key`（界面配置，托盘「配置…」写入）
 **关联决策**：无
 
 ### 一句话定位
 
-回答"OpenCode Go 套餐还剩多少额度"的唯一取数口：API Key 发现、多出口（环境变量代理 → Windows 系统代理 → 直连）降级请求、响应解析与倒计时格式化；纯逻辑无 Qt，供 `main.py` 后台线程调用、`card.py` 消费结果。
+回答"OpenCode Go 套餐还剩多少额度"的唯一取数口：key 发现与来源裁决、多出口（环境变量代理 → Windows 系统代理 → 直连）降级请求、响应解析与倒计时格式化、展示用脱敏；纯逻辑无 Qt，供 `main.py` 后台线程调用、`card.py` 与 `config_window.py` 消费结果。
 
 ### 用户入口
 
 | 入口 | 能做什么 |
 |---|---|
-| `find_api_key` | 环境变量 `OPENCODE_GO_API_KEY` 优先，否则只读 ZCode 配置取 `opencode-go-chat` 的 key |
+| `resolve_key` / `find_api_key` | 裁决生效 key（界面配置 > 环境变量 > 自动发现）并给出脱敏与来源 |
+| `discover_keys` | 列出 ZCode 配置里所有带 key 的供应商（配置窗口的候选列表） |
 | `fetch_usage` | 取一次三窗口额度（`rolling`/`weekly`/`monthly` 的 percent 与 resetsAt） |
-| `countdown` / `hottest` / `is_stale` | 卡片展示用纯函数（倒计时、最热窗口、陈旧判定） |
+| `countdown` / `hottest` / `is_stale` / `mask` | 卡片与配置窗口展示用纯函数（倒计时、最热窗口、陈旧判定、脱敏） |
 
 ### 行为预期（可验证，已逐条核实代码）
 
-1. **key 只读不写**：只读打开 `~/.zcode/v2/provider_config.json`（路径可用 `ZCODE_PROVIDER_CONFIG` 覆盖），缺失/损坏/无该供应商一律返回空串，不抛异常。出处：`quota.py:find_api_key`（`tests/test_quota.py::test_find_api_key_*` 锁住）。
-2. **出口候选顺序**：`OPENCODE_GO_PROXY`（显式指定）→ 环境变量代理 → Windows 系统代理（注册表 WinINET，未开启/读取失败则跳过）→ 直连；首个成功的出口被记住并在后续请求里优先复用，鉴权类 HTTP 401/403 不再换出口重试。出处：`quota.py:default_candidates/Fetcher._ordered/get_json`（`tests/test_quota.py::test_fetcher_*`、`test_default_candidates_order` 锁住；2026-09-24 真机实测：环境变量代理 7897 失效 → 自动旁路到系统代理 17891 成功）。
-3. **每候选一份新 Request**：`urllib` 的 `ProxyHandler` 会就地改写 Request（`set_proxy`），复用同一对象会让失效候选污染后续候选（含直连）导致"全失败"；故候选循环内每次新建 Request。出处：`quota.py:Fetcher._request`（`tests/test_quota.py::test_each_candidate_gets_fresh_request` 锁住）。
-4. **解析口径**：三窗口固定按 `rolling/weekly/monthly` 顺序输出中文标签「5 小时/本周/本月」；percent 接受数字或数字字符串并钳到 0~100，不可解析为 None；`resetsAt` 非法/缺失为 None；三窗口全无 percent 或整体结构不符才抛 `QuotaError`。出处：`quota.py:parse_usage`（`tests/test_quota.py::test_parse_*`、`test_percent_parsing_and_clamp` 锁住）。
-5. **失败降级**：请求失败（超时/连接被拒/HTTP 非 200/解析失败）抛 `QuotaError`，由调用方保留上次数值并标记状态；`Fetcher` 不写任何本地状态。出处：`quota.py:Fetcher.get_json`、`main.py:_QuotaThread.run`。
-6. **倒计时格式**：`<1h → "13m"`；`<1d → "2h13m"`；`≥1d → "3d09h"`；已过 → `"已重置"`；无重置时间 → 空串。出处：`quota.py:countdown`（`tests/test_quota.py::test_countdown_*` 锁住）。
+1. **key 裁决顺序**：界面配置（`state.json.quota_api_key`）> 环境变量 `OPENCODE_GO_API_KEY` > ZCode 配置自动发现（`opencode-go-chat`）；三者皆无 = 未配置（空 key，`source="none"`）。界面配置优先是刻意取舍：界面里选过就必须生效，否则"配了没反应"。出处：`quota.py:resolve_key`（`tests/test_quota.py::test_resolve_key_*` 四条锁住）；`find_api_key` 是返回字符串的兼容入口。
+2. **只读不写**：只读打开 `~/.zcode/v2/provider_config.json`（路径可用 `ZCODE_PROVIDER_CONFIG` 覆盖），缺失/损坏/无该供应商一律视为未配置，不抛异常；发现与裁决都不改动文件内容与修改时间。出处：`quota.py:discover_keys/_provider_rules`（`tests/test_quota.py::test_discover_keys_is_read_only`、`test_find_api_key_missing_file` 锁住）。
+3. **发现列表**：`discover_keys` 列出配置里**所有**带 key 的供应商（顺序即文件顺序，跳过无 key/纯空白/非字符串行）；只负责列表，不判断该 key 是否适用于 OpenCode Go 端点（能否取数只有真请求才知道，由界面如实提示）。出处：`quota.py:discover_keys`（`tests/test_quota.py::test_discover_keys_*` 锁住）。
+4. **脱敏定长**：`mask` 只留首 6 尾 4（定长 11 字符），过短一律全掩、原值不出现在结果里；界面上任何位置都不显示完整 key，唯一例外是配置窗口的手动输入框（用户自己粘贴核对用）。出处：`quota.py:mask`（`tests/test_quota.py::test_mask_*` 锁住）。
+5. **出口候选顺序**：`OPENCODE_GO_PROXY`（显式指定）→ 环境变量代理 → Windows 系统代理（注册表 WinINET，未开启/读取失败则跳过）→ 直连；首个成功的出口被记住并在后续请求里优先复用，鉴权类 HTTP 401/403 不再换出口重试。出处：`quota.py:default_candidates/Fetcher._ordered/get_json`（`tests/test_quota.py::test_fetcher_*`、`test_default_candidates_order` 锁住；2026-09-24 真机实测：环境变量代理 7897 失效 → 自动旁路到系统代理 17891 成功）。
+6. **每候选一份新 Request**：`urllib` 的 `ProxyHandler` 会就地改写 Request（`set_proxy`），复用同一对象会让失效候选污染后续候选（含直连）导致"全失败"；故候选循环内每次新建 Request。出处：`quota.py:Fetcher._request`（`tests/test_quota.py::test_each_candidate_gets_fresh_request` 锁住）。
+7. **解析口径**：三窗口固定按 `rolling/weekly/monthly` 顺序输出中文标签「5 小时/本周/本月」；percent 接受数字或数字字符串并钳到 0~100，不可解析为 None；`resetsAt` 非法/缺失为 None；三窗口全无 percent 或整体结构不符才抛 `QuotaError`。出处：`quota.py:parse_usage`（`tests/test_quota.py::test_parse_*`、`test_percent_parsing_and_clamp` 锁住）。
+8. **失败降级**：请求失败（超时/连接被拒/HTTP 非 200/解析失败）抛 `QuotaError`，由调用方保留上次数值并标记状态；`Fetcher` 不写任何本地状态。出处：`quota.py:Fetcher.get_json`、`main.py:_QuotaThread.run`。
+9. **倒计时格式**：`<1h → "13m"`；`<1d → "2h13m"`；`≥1d → "3d09h"`；已过 → `"已重置"`；无重置时间 → 空串。出处：`quota.py:countdown`（`tests/test_quota.py::test_countdown_*` 锁住）。
+
+### 已知待修问题
+
+- **1. README 宣称的 `OPENCODE_GO_USAGE_URL` 未实现**：README「工作原理」节写明"可用环境变量 `OPENCODE_GO_USAGE_URL` 覆盖地址"，但全仓库 grep 无任何代码读取该变量（`DEFAULT_URL` 在 `fetch_usage` 默认参数里写死）。影响：按文档改环境变量不生效。暂定对策：要么实现该覆盖，要么删掉该说明——待用户定；本轮（加配置窗口）不夹带。
 
 ### 反直觉/易误解（踩坑预警）
 
-- **接口只给百分比，没有绝对值**：实测响应只有 `{status, percent, resetsAt}`，没有"已用/总额"数字，所以卡片只能显示已用百分比与重置倒计时，别指望换算成美元或 token 数。
+- **界面配置压过环境变量**：`OPENCODE_GO_API_KEY` 只在"没有界面配置"时生效；环境变量是给人临时兜底的，不是最高优先级。
+- **手填非 OpenCode Go 的 key 必然失败**：额度端点只有 OpenCode Go 一路（opencode.ai），kimi/workbuddy 等 key 会 401；这是如实反馈（状态行显示 HTTP 401），不是 bug。
 - **环境变量代理可能是坏的**：本机 `HTTPS_PROXY` 指向失效端口 7897，而真正可用的是系统代理 17891；只依赖 env 代理会全盘失败，故必须保留系统代理与直连兜底。
+- **接口只给百分比，没有绝对值**：实测响应只有 `{status, percent, resetsAt}`，没有"已用/总额"数字，所以卡片只能显示已用百分比与重置倒计时，别指望换算成美元或 token 数。
 - **官方没有公开用量 API**（anomalyco/opencode#31084 已确认），该端点是社区用法，官方若变更需要跟着改。
+
+---
+
+## 配置窗口（config_window.py）
+
+**主代码**：`config_window.py`（入口 `main.py:open_config`，候选来自 `quota.discover_keys`，落盘走 `config.save`）
+**模型/数据**：`state.json.quota_api_key`（本机配置）+ ZCode 供应商配置（只读）
+**关联决策**：无
+
+### 一句话定位
+
+托盘右键「配置…」打开的独立纸感窗口，回答"套餐页的数据用哪个 key"：三档互斥来源（自动发现 / ZCode 配置里的 key / 手动输入）+ 保存即生效 + 落盘回读校验；独立窗口不占卡片空间，卡片布局与几何零改动。
+
+### 用户入口
+
+| 入口 | 能做什么 |
+|---|---|
+| 托盘右键「配置…」 | 打开/置前配置窗口（复用同一实例，不开第二个） |
+| 窗口内选项行 | 选来源；选中「手动输入」行才启用输入框 |
+| 「保存」/「取消」/「×」/ESC | 保存并立即生效；取消、关闭都不改配置 |
+
+### 行为预期（可验证，已逐条核实代码）
+
+1. **不占卡片空间**：本功能不改卡片 296×218 布局、tab 宽度与位置、点击/拖动判定（顶行仍两格）；配置窗口是独立顶层窗口（`Qt.Tool`，不进任务栏）。出处：本文件「窗口渲染（card.py）」几何预期（本轮未改）+ `config_window.py` 独立类。
+2. **三档互斥来源**：行序固定「自动发现（默认）→ ZCode 配置发现的 key（脱敏显示 + providerId 附注）→ 手动输入（恒为末行）」；"选哪行 = 存哪个值"由纯函数决定：自动发现存空串（回落自动发现）、key 行存该 key、手动行存去空白后的输入。出处：`config_window.py:build_rows/selected_value/row_index_for`（`tests/test_config_window.py::test_rows_order_is_auto_keys_manual`、`test_selected_value_maps_row_to_value`、`test_row_index_backfills_from_configured` 锁住）。
+3. **回填**：打开/刷新时按已保存值定位——空 = 自动发现；命中某个已发现的 key = 该行；其余 = 手动输入行并把明文填回输入框（便于核对）。出处：`config_window.py:row_index_for/refresh`（`tests/test_config_window.py::test_refresh_rebackfills_configured` 锁住）。
+4. **输入框只在手动行可用**：未选中该行时清空 + 置灰（连背景一起压暗），选中时获得焦点；这是界面上唯一显示完整 key 的位置（用户自己粘贴核对用）。出处：`config_window.py:_sync_selection` + 输入框 QSS（`tests/test_config_window.py::test_field_enabled_only_for_manual_row` 锁住）。
+5. **保存闭环**：写 `state.json.quota_api_key` → 回读校验 → 成功后关窗并发 `key_saved`（由 `main._apply_quota_key` 立即换 key 重取）；手动行内容为空、或写盘校验不一致时**不关窗、不发信号**，窗口内红字说明原因。出处：`config_window.py:_save/save_configured`（`tests/test_config_window.py::test_save_*` 四条锁住）。
+6. **窗口内自证**：顶部两行显示「当前使用：<脱敏 key>（来源）」与「上次取数：<与套餐页同一口径的文案>」——重开窗口即可确认配置是否真的生效，不必去翻卡片。出处：`config_window.py:_draw_info` + `card.py:quota_fetch_note`。
+7. **长列表可滚**：候选行数超过 `KEYWIN_ROWS_MAX`(9) 时窗口不再长高，选项区用滚轮翻看并在栏目标签右侧提示「共 N 项 · 滚轮翻看」；手动输入行滚出视野时输入框隐藏（避免浮在别的行上）。出处：`config_window.py:layout/wheelEvent/_row_y`（`tests/test_config_window.py::test_layout_grows_with_rows_and_caps`、`test_row_at_hit_test_and_scroll` 锁住）。
+8. **视觉与卡片同语言**：暖白纸底 + 细灰线 + 同套投影/圆角/色板，字号走与 card.py 同一套 px 取整规则，色值全部取自 `theme.py`；标题「套餐 API Key」，右上「×」关闭，ESC 关闭，空白处可拖动。2026-09-30 截图验收（真实字体、`WA_DontShowOnScreen` 离屏渲染）：`out/shot_config_auto.png` / `_picked.png` / `_manual.png` 三态行文字与附注无重叠、说明文字不截断。出处：`config_window.py:paintEvent/_draw_*`、`tools/shot_config.py`。
+
+### 反直觉/易误解（踩坑预警）
+
+- **"自动发现"是一档显式选择，不是"未配置"**：它表示"交给 `quota.resolve_key` 按 环境变量 → ZCode 配置 去挑"；所以选它保存会写入空串，之前手填的 key 会被清掉。
+- **窗口复用但位置不持久化**：反复打开只刷新内容、不新开窗口，位置在本会话内保持；重启程序后回到鼠标所在屏幕中央。
+- **候选列表不做可用性判断**：列的是"ZCode 配置里有 key 的供应商"，不代表这些 key 都能取 OpenCode Go 额度（实测只有 `opencode-go-chat` 那路可用，其余会 401 并在套餐页如实显示）。
 
 ---
 
@@ -233,13 +280,14 @@
 11. **tab 控件与切换**：顶行两格「用量 / 套餐」（`TAB_Y/W/H`，x 由 `tab_x()` 动态算出——取"左侧日期时钟文本结束位置"与"右侧次数起点"的中点，二者间距相等；右侧按 `TAB_RIGHT_REF`（4 位数参照）计算，故次数位数变化时 tab 不抖动）；激活格橙字 + 橙淡填充（`C_ACCENT` alpha 0.14），未激活灰字；默认 `tab = 0`。出处：`card.py:header_text/tab_x/_draw_tabs/tab_at`（`tests/test_card_tab.py::test_tab_centered_between_head_and_count`、`test_tab_x_tracks_head_text_width`、`test_tab_at_hit_test`、`test_default_tab_is_usage` 锁住）。
 12. **点击与拖动区分**：按下→释放位移 ≤ `CLICK_MAX_MOVE`(4px) 且落在 tab 控件内才切页；位移超过阈值按拖动处理（移动窗口并保存位置），纯点击不再写 `state.json`。出处：`card.py:is_click/mouseReleaseEvent`（`tests/test_card_tab.py::test_click_on_tab_switches_and_click_does_not_save_pos`、`test_drag_keeps_tab_and_saves_pos` 锁住）。
 13. **tab 0 内容零改动**：切到套餐页再切回，tab 0 的补间目标、drip 摊放池、真实值累积都照常（切页不重绘 tab 0 内容、也不动其状态）。出处：`card.py:paintEvent` 分派（`tests/test_card_tab.py::test_tab0_numbers_and_pool_untouched_by_tab_switch` 锁住）。
-14. **套餐页排版**（`_draw_quota`）：大数字 = 已用百分比最高的窗口（`quota.hottest`，达 `QUOTA_WARN_PCT`(90) 转 `C_ERROR`），cap 文案「{窗口名}额度已用」；三行固定 `5 小时/本周/本月`（行中心 `Q_ROW_CY`，复用 tab 0 的色点/行高几何）+ 进度条（左端 `Q_BAR_X` 贴近窗口名、右端让位百分比列）+ 已用百分比（数字与百分号分两段绘制、中间留 `Q_PCT_GAP` 间距，右端 `Q_PCT_RIGHT`）+ 重置倒计时（右端 `Q_CD_RIGHT`，字号与百分比同档 `FS_Q_CD = FS_Q_PCT`，`quota.countdown`）；底部一行状态（`_quota_status`）：正常「套餐额度 · 更新于 HH:MM」灰字、陈旧「数据陈旧 · 最后更新 HH:MM」警示色、失败「<原因> · 显示 HH:MM 数据」警示色、未配置灰字。出处：`card.py:_draw_quota/_quota_status`（`tests/test_card_tab.py::test_quota_page_renders_every_state` 等锁住）。
+14. **套餐页排版**（`_draw_quota`）：大数字 = 已用百分比最高的窗口（`quota.hottest`，达 `QUOTA_WARN_PCT`(90) 转 `C_ERROR`），cap 文案「{窗口名}额度已用」；三行固定 `5 小时/本周/本月`（行中心 `Q_ROW_CY`，复用 tab 0 的色点/行高几何）+ 进度条（左端 `Q_BAR_X` 贴近窗口名、右端让位百分比列）+ 已用百分比（数字与百分号分两段绘制、中间留 `Q_PCT_GAP` 间距，右端 `Q_PCT_RIGHT`）+ 重置倒计时（右端 `Q_CD_RIGHT`，字号与百分比同档 `FS_Q_CD = FS_Q_PCT`，`quota.countdown`）；底部一行状态（`_quota_status`）：正常「套餐额度 · 更新于 HH:MM」灰字、陈旧「数据陈旧 · 最后更新 HH:MM」警示色、失败「<原因> · 显示 HH:MM 数据」警示色、未配置灰字。**状态行仅在"界面里显式配过 key"时**在正常态插一句脱敏 key（「套餐额度 · sk-ab12…cdef · 更新于 HH:MM」，实测 203px < 可用 266px）；默认自动发现/环境变量时不插（文案与改版前逐字一致），陈旧/失败/未配置三态也不插（那三种先行文案已很长，让位给原因本身）。出处：`card.py:_draw_quota/_quota_status/set_quota_key_label`（`tests/test_card_tab.py::test_quota_page_renders_every_state`、`test_quota_status_shows_key_only_when_configured`、`test_quota_status_key_not_shown_on_abnormal_states` 锁住）。
 15. **呼吸灯随当前页**：tab 0 看用量数据源异常，tab 1 看额度状态（未配置不算故障、不转红；失败或陈旧转 `C_ERROR`）。出处：`card.py:_top_problem`（`tests/test_card_tab.py::test_light_follows_current_tab` 锁住）。
 16. **额度数值不进 drip 池**：`set_quota` 首帧落位、其后走 `TWEEN_MS` 补间，不产生飘字、不入池。出处：`card.py:set_quota`（`tests/test_card_tab.py::test_quota_values_never_enter_drip_pool`、`test_quota_first_set_snaps_then_tweens` 锁住）。
 17. **顶行当前速率**：占用原「次数」的位置（右对齐 `TOP_RIGHT`），显示 `S.fmt_rate(rate, RATE_UNIT)`（如 `159 t/s`；空闲显 `空闲`）。`TAB_RIGHT_REF` 由 `0000 次`(41px) 换成 `000 t/s`(42px)，实测差 1px，**故 tab 位置不变（仍为 164）**；文案另按"不压到 tab 右侧格标签墨迹"的可用宽度（`TOP_RIGHT −(tab_x + TAB_LABEL_OFFSET)`≈58px）截断兜底。出处：`card.py:top_right_text/_draw_top`（`tests/test_card_rate.py::test_tab_position_unchanged_by_reference_swap`、`test_top_right_text_fits_beside_tab` 锁住）。
 18. **cap 行轮次**：`今日 TOKENS` 右侧、右对齐至 `CAP_COUNT_RIGHT`(140)，文案走 `S.fmt_count`（`5124次` / 万级 `1万次`），字号沿用 `FS_REQ`。槽位实测 39px。出处：`card.py:_draw_main`（`tests/test_card_rate.py::test_cap_count_slot_fits` 锁住）。
 19. **模型行各自速率**：每行在累计值左侧显示该模型自己的速率——右对齐、与累计之间隔**单空格** `RATE_GAP`(7px)、**不带单位**、字号 `FS_MI_V`(12.5px) 加粗；取该模型**最后一次**可信样本的读数（**不限新鲜期**，今日无可信样本才显 `空闲`）。配色由 `model_rate_color(active)` 决定：样本仍在 `RATE_FRESH_MS`(60s) 内（该模型正在生成）→ 红 `C_RATE_ACTIVE`，否则灰 `C_TEXT_LABEL`（历史读数）——空闲时仍能看到各模型刚才多快，靠颜色区分"还在跑"与"已停下"。与累计一样整值直显：**不进 drip 池、无飘字、不补间**（`TWEEN_KEYS` 不含 `rate`/`model_rates`/`active_models`）。出处：`card.py:_draw_models/set_data/model_rate_color`（`tests/test_card_rate.py::test_rate_never_enters_drip_pool` 反向锁住、`test_model_rate_color_active_red_else_grey` 锁配色、`test_active_models_follows_each_set_data` 锁整值替换）。
 20. **异常态顶行**：`set_error` 时顶行右端显示固定短句 `ERROR_TOP_TEXT`（「数据源异常」，与改版前一致），**不显示异常类名**——实测 `OperationalError` 97px、`sqlite3.OperationalError` 145px，都会越过 tab；轮次与各速率按既有容错约定保留上次值（与"今日总量在异常期间同样是上次值"同理），状态由呼吸灯转红 + 短句标记。出处：`card.py:top_right_text/set_error/_draw_top`（`tests/test_card_rate.py::test_error_keeps_cap_count_and_moves_warning_to_top_row` 锁住）。
+21. **配置窗口的两个读取口**：`set_quota_key_label(label)` 只存一个字符串（空 = 不显示），卡片不碰 `state.json`；`quota_fetch_note()` 返回「上次取数」文案与是否故障，**复用 `_quota_status` 同一份口径与配色来源**（配置窗口与套餐页状态行不会各说各话）。出处：`card.py:set_quota_key_label/quota_fetch_note`（文案一致性由 `tests/test_card_tab.py::test_quota_status_*` 两条间接锁定）。
 
 ### 已知待修问题
 
@@ -268,8 +316,10 @@
 3. **位置校验**：恢复位置时窗口须与任一屏幕相交，否则落回主屏右下默认位。出处：`main.py:_restore_pos`。
 4. **轮询装配当前会话**：每轮轮询固定 **6 条查询**（当日行、模型 TOP3、近期生成行、最近活跃会话、会话标题、会话用量）+ 一次 leveldb 扫描，查询条数固定、不随 `model_usage` 行数线性增长；装配结果经 `current.SessionResolver` 裁决后交给 `card.set_data` 的 `cur` 字段。出处：`main.py:_poll/_current_session`（`tests/test_current.py` 裁决行为锁住）。
 7. **生成速率装配**：`_poll` 里 `fetch_last_gen_rows` 取每模型固定候选条数（`RATE_MODEL_CANDIDATES`=3）后交 `S.gen_rates(rows, now_ms, RATE_FRESH_MS)`，结果写入 `d["rate"]`（顶行当前速率）、`d["model_rates"]`（各模型最后速率）与 `d["active_models"]`（正在生成的模型集合，驱动模型行速率转红）一并 `set_data`；速率只算 output，与含缓存的"今日总量"口径不同，故单独取数、不并入 `aggregate`。出处：`main.py:_poll`。
-5. **托盘菜单四项**：跟随显示、开机自启动、显示/隐藏、退出；自启动勾选状态初始化自注册表现状（先设状态后连信号，初始化不产生注册表写），勾选变化即写/删 Run 键，失败回弹勾选并托盘气泡提示。出处：`main.py` 托盘装配、`_toggle_autostart`。
-6. **额度轮询独立线程**：`_QuotaThread` 启动即拉一次、此后每 `QUOTA_POLL_MS`(60s) 一次（QThread 内 sleep，不占 UI 线程）；结果经信号回主线程 `card.set_quota`，失败只上报错误文案（卡片保留上次数值并标陈旧）；未找到 Key 则不起线程，直接置"未配置"提示；退出时 `stop()` + `wait(2000)` 收线程（分片睡眠，最坏 0.2s 退出）。本条失败不影响 1.5s 的本地库轮询与 tab 0 显示。出处：`main.py:_QuotaThread/_on_quota/_cleanup`。
+5. **托盘菜单五项**：跟随显示、开机自启动、配置…、显示/隐藏、退出；自启动勾选状态初始化自注册表现状（先设状态后连信号，初始化不产生注册表写），勾选变化即写/删 Run 键，失败回弹勾选并托盘气泡提示。出处：`main.py` 托盘装配、`_toggle_autostart`。
+6. **额度轮询独立线程**：`_QuotaThread` 启动即拉一次、此后每 `QUOTA_POLL_MS`(60s) 一次（QThread 内 sleep，不占 UI 线程）；结果经信号回主线程 `card.set_quota`，失败只上报错误文案（卡片保留上次数值并标陈旧）；退出时 `stop()` + `wait(2000)` 收线程（分片睡眠，最坏 0.2s 退出）。本条失败不影响 1.5s 的本地库轮询与 tab 0 显示。出处：`main.py:_QuotaThread/_on_quota/_cleanup`。
+7. **key 来源与"未配置"边界**：启动时 key 取自 `state.json.quota_api_key` → 交 `quota.resolve_key` 裁决（界面配置 > 环境变量 > 自动发现）；裁决结果为空则**不起线程**，直接置"未配置 OpenCode Go（需 API Key）"灰字提示（`kind="config"`，不当作故障、呼吸灯不转红）。出处：`main.py:App.__init__/_apply_quota_key`。
+8. **配置窗口与换 key 即时生效**：`open_config` 每次打开都重扫 ZCode 配置并按当前配置刷新内容（复用同一实例、已开着只置前，不开第二个；首次落在鼠标所在屏幕中央）；窗口 `key_saved` 直接连到 `_apply_quota_key`——先断开旧线程信号（防上一条 key 的结果回灌界面）、`stop()`+`wait(2000)`、`setParent(None)`+`deleteLater()`，再按新 key 起新线程（线程启动即取一次，故不等下一个 60s 周期）；状态行的 key 标签只在 `source=="config"`（界面配置）时设置，环境变量/自动发现不显示。出处：`main.py:open_config/_center_config/_apply_quota_key`（真机端到端 2026-09-30 已验证：选中 opencode-go-chat 行保存 → `state.json` 写入且回读一致 → 线程重建 → 立即取回三窗口 6%/2%/1%；验证后 `state.json` 已还原，未留副作用）。
 
 ### 已知待修问题
 
@@ -291,6 +341,8 @@
 
 1. **路径按形态分流**：源码模式 = 仓库根 `state.json`；打包（`sys.frozen`）模式 = `%APPDATA%/ZCodeTokensCard/state.json`（父目录自动创建，APPDATA 缺失退回 `~/`）。出处：`config.py:config_path`（`tests/test_config.py` 锁住）。
 2. **读写容错**：`load` 对缺失/损坏 JSON 返回 `{}`；`save` 增量合并不覆盖既有键、写失败静默不抛。出处：`config.py:load/save`（`tests/test_config.py` 锁住）。
+3. **本文件是唯一落盘点**：窗口位置（`pos_x`/`pos_y`）与套餐页的界面配置 key（`quota_api_key`，空串 = 自动发现）都只写这里；`state.json` 已在 `.gitignore` 内，**密钥不入开源仓库**。出处：`.gitignore`、`config_window.py:save_configured`（`tests/test_config_window.py::test_save_persists_and_emits` 等锁住）。
+4. **写失败不谎报**：`config.save` 对写失败静默（既有约定，配置非关键路径），故配置窗口在 `save` 后**回读校验**，不一致时窗口内红字提示且不关闭、不发保存信号（`save_configured` 返回 False）。出处：`config_window.py:save_configured`（`tests/test_config_window.py::test_save_failure_is_reported_not_faked` 锁住）。
 
 ### 反直觉/易误解（踩坑预警）
 

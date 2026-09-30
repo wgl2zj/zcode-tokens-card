@@ -2,6 +2,8 @@
 
 纯逻辑模块(不含 Qt),便于单测锁口径。对 ZCode 配置目录只读访问,绝不写入;
 网络失败一律抛 QuotaError 或返回错误描述,由调用方降级显示。
+key 裁决(见 resolve_key):界面配置 > 环境变量 > ZCode 配置自动发现——界面里
+显式选的必须生效,否则"配了没反应";环境变量与自动发现都是无界面时的兜底。
 出口策略见 Fetcher:环境变量代理 → Windows 系统代理 → 直连,首个成功者复用
 (实测本机 env 代理端口已失效而系统代理可用,故不能只依赖 env)。
 """
@@ -15,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 PROVIDER_ID = "opencode-go-chat"                 # ZCode 里 OpenCode Go(Chat)供应商 id
+ENV_KEY = "OPENCODE_GO_API_KEY"                  # 无界面时的 key 兜底口
 DEFAULT_URL = "https://opencode.ai/zen/go/v1/usage"
 TIMEOUT_S = 10.0
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -47,7 +50,18 @@ class Quota:
     fetched_at: datetime.datetime
 
 
-# —— key 发现 ——
+# —— key 发现与来源裁决 ——
+
+# 脱敏保留的首尾字符数:够认出"是哪一个 key",又不足以还原完整凭据
+MASK_HEAD, MASK_TAIL = 6, 4
+# 来源标识:config = 界面配置(优先级最高),env = 环境变量,zcode = 只读自动发现
+SOURCE_LABELS = {
+    "config": "界面配置",
+    "env": f"环境变量 {ENV_KEY}",
+    "zcode": f"ZCode 配置 · {PROVIDER_ID}",
+    "none": "未配置",
+}
+
 
 def config_path() -> Path:
     """ZCode 供应商配置文件路径(可用 ZCODE_PROVIDER_CONFIG 覆盖,便于测试)。"""
@@ -57,29 +71,99 @@ def config_path() -> Path:
     return Path.home() / ".zcode" / "v2" / "provider_config.json"
 
 
-def find_api_key(environ: dict | None = None, path: Path | None = None) -> str:
-    """取 OpenCode Go 的 API Key:环境变量优先,其次只读 ZCode 供应商配置。
+def mask(key: str) -> str:
+    """脱敏展示:首 6 + 尾 4,中间省略号;过短(< 11 位)一律全掩,不泄露原值。"""
+    text = (key or "").strip()
+    if not text:
+        return ""
+    if len(text) < MASK_HEAD + MASK_TAIL + 1:
+        return "•" * max(3, len(text))
+    return f"{text[:MASK_HEAD]}…{text[-MASK_TAIL:]}"
 
-    任何读取/解析失败都返回空串(视为"未配置"),不抛异常。
-    """
-    env = os.environ if environ is None else environ
-    key = (env.get("OPENCODE_GO_API_KEY") or "").strip()
-    if key:
-        return key
+
+@dataclass
+class KeyCandidate:
+    """ZCode 配置里发现的一条供应商凭据(providerId + 明文 key)。"""
+
+    provider_id: str
+    api_key: str
+
+    @property
+    def label(self) -> str:
+        return mask(self.api_key)
+
+
+@dataclass
+class ResolvedKey:
+    """一次裁决的结果:实际使用的 key + 来源(供界面说明"当前用的是哪个")。"""
+
+    key: str = ""
+    source: str = "none"          # config / env / zcode / none
+    provider_id: str = ""
+
+    @property
+    def masked(self) -> str:
+        return mask(self.key)
+
+    @property
+    def source_label(self) -> str:
+        return SOURCE_LABELS.get(self.source, self.source)
+
+
+def _provider_rules(path: Path | None = None) -> list:
+    """ZCode 供应商规则列表;文件缺失/损坏/结构不符一律返回空表(视为未配置)。"""
     try:
         data = json.loads((path or config_path()).read_text("utf-8"))
     except (OSError, ValueError):
-        return ""
+        return []
     rules = (data.get("config", {}).get("providerConfigRules", {})
              .get("providerRules", []))
-    if not isinstance(rules, list):
-        return ""
-    for rule in rules:
-        if isinstance(rule, dict) and rule.get("providerId") == PROVIDER_ID:
-            access = rule.get("config", {}).get("access", {})
-            value = access.get("apiKey") if isinstance(access, dict) else None
-            return value.strip() if isinstance(value, str) else ""
-    return ""
+    return [r for r in rules if isinstance(r, dict)] if isinstance(rules, list) \
+        else []
+
+
+def discover_keys(path: Path | None = None) -> list[KeyCandidate]:
+    """ZCode 配置里**所有**带 key 的供应商,顺序即文件顺序。
+
+    供配置窗口列表展示:仅读取,不判断该 key 是否适用于 OpenCode Go 端点
+    (能否取数只有真请求才知道,界面据此如实提示)。
+    """
+    out = []
+    for rule in _provider_rules(path):
+        config = rule.get("config")
+        access = config.get("access", {}) if isinstance(config, dict) else {}
+        value = access.get("apiKey") if isinstance(access, dict) else None
+        if isinstance(value, str) and value.strip():
+            out.append(KeyCandidate(str(rule.get("providerId") or ""),
+                                    value.strip()))
+    return out
+
+
+def resolve_key(configured: str = "", environ: dict | None = None,
+                path: Path | None = None) -> ResolvedKey:
+    """生效 key 的裁决:界面配置 > 环境变量 > ZCode 配置自动发现。
+
+    界面配置优先是刻意的:用户在窗口里显式选过就必须生效,否则
+    "配了没反应";环境变量与自动发现只在没有界面配置时起作用。
+    任何读取/解析失败都退化为"未配置"(空 key),不抛异常。
+    """
+    env = os.environ if environ is None else environ
+    preferred = (configured or "").strip()
+    if preferred:
+        return ResolvedKey(preferred, "config")
+    key = (env.get(ENV_KEY) or "").strip()
+    if key:
+        return ResolvedKey(key, "env")
+    for cand in discover_keys(path):
+        if cand.provider_id == PROVIDER_ID:
+            return ResolvedKey(cand.api_key, "zcode", cand.provider_id)
+    return ResolvedKey("", "none")
+
+
+def find_api_key(environ: dict | None = None, path: Path | None = None,
+                 configured: str = "") -> str:
+    """生效 key 的字符串形态(兼容入口,裁决规则见 resolve_key)。"""
+    return resolve_key(configured, environ, path).key
 
 
 # —— 出口候选(env 代理 → 系统代理 → 直连) ——

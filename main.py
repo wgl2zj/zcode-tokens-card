@@ -2,6 +2,8 @@
 
 用量轮询读本地库(1.5s);套餐额度轮询走外部 HTTP(60s,后台线程),
 两条链路互不影响:额度失败只影响卡片"套餐"页的状态行。
+托盘右键「配置…」打开独立的套餐 API Key 配置窗口(不占卡片空间),
+保存后立即换 key 重起额度线程(见 _apply_quota_key)。
 """
 
 import ctypes
@@ -9,14 +11,16 @@ import sys
 import time
 from ctypes import wintypes
 
-from PySide6.QtCore import QRect, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QPoint, QRect, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import (QAction, QColor, QCursor, QFont, QIcon, QPainter,
+                           QPixmap)
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (QApplication, QMenu, QSystemTrayIcon)
 
 import autostart
 import card as card_mod
 import config as cfg
+import config_window
 import current
 import quota
 import reader
@@ -144,12 +148,15 @@ class App:
         self.autostart = QAction("开机自启动", menu, checkable=True)
         self.autostart.setChecked(autostart.is_enabled())
         self.autostart.toggled.connect(self._toggle_autostart)
+        act_config = QAction("配置…", menu)
+        act_config.triggered.connect(self.open_config)
         act_toggle = QAction("显示 / 隐藏", menu)
         act_toggle.triggered.connect(self._toggle_card)
         act_quit = QAction("退出", menu)
         act_quit.triggered.connect(self.quit)
         menu.addAction(self.follow)
         menu.addAction(self.autostart)
+        menu.addAction(act_config)
         menu.addAction(act_toggle)
         menu.addAction(act_quit)
         self.tray.setContextMenu(menu)
@@ -182,16 +189,13 @@ class App:
         self._poll()
         self.poll.start(POLL_MS)
 
-        # 套餐额度轮询(tab 1):没配 Key 就不起线程,直接置未配置提示
+        # 套餐额度轮询(tab 1):没配 Key 就不起线程,直接置未配置提示。
+        # key 取自界面配置(托盘「配置…」写入 state.json),无配置时按
+        # 环境变量 → ZCode 配置自动发现回落,裁决规则见 quota.resolve_key。
         self.quota_thread: _QuotaThread | None = None
-        key = quota.find_api_key()
-        if key:
-            self.quota_thread = _QuotaThread(key, QUOTA_POLL_MS, self.app)
-            self.quota_thread.result.connect(self._on_quota)
-            self.quota_thread.start()
-        else:
-            self.card.set_quota_error("未配置 OpenCode Go（需 API Key）",
-                                      kind="config")
+        self.quota_key = ""            # 实际生效的 key(空 = 未配置)
+        self.config_win: config_window.KeyConfigWindow | None = None
+        self._apply_quota_key(cfg.load().get("quota_api_key") or "")
 
     # —— 窗口位置 ——
     def _restore_pos(self) -> None:
@@ -270,6 +274,62 @@ class App:
 
     def quit(self) -> None:
         self.app.quit()
+
+    # —— 套餐 API Key 配置(托盘右键「配置…」;独立窗口,不占卡片空间) ——
+    def open_config(self) -> None:
+        """打开配置窗口;已开着则按当前配置刷新内容并置前,不开第二个。"""
+        note, problem = self.card.quota_fetch_note()
+        configured = cfg.load().get("quota_api_key") or ""
+        resolved = quota.resolve_key(configured)
+        # 每次打开都重扫 ZCode 配置:期间新增的供应商 key 也能立刻选到
+        candidates = quota.discover_keys()
+        if self.config_win is None:
+            self.config_win = config_window.KeyConfigWindow(
+                candidates, configured, resolved, note, problem)
+            self.config_win.key_saved.connect(self._apply_quota_key)
+            self._center_config()
+        else:
+            self.config_win.refresh(candidates, configured, resolved,
+                                    note, problem)
+        self.config_win.show()
+        self.config_win.raise_()
+        self.config_win.activateWindow()
+
+    def _center_config(self) -> None:
+        """首次打开时落在鼠标所在屏幕中央(位置不持久化,拖动即本会话内保持)。"""
+        win = self.config_win
+        screen = QApplication.screenAt(QCursor.pos()) or self.card.screen()
+        center = screen.availableGeometry().center()
+        win.move(center - QPoint(win.width() // 2, win.height() // 2))
+
+    def _apply_quota_key(self, configured: str) -> None:
+        """按界面配置换 key:停旧线程 → 起新线程(启动即取一次,不等 60s 周期)。
+
+        key 为空 = 未配置(不起线程,置灰字提示)。换 key 后旧线程的信号先断开,
+        避免它把上一条 key 的结果回灌到界面。
+        """
+        if self.quota_thread is not None:
+            old, self.quota_thread = self.quota_thread, None
+            try:
+                old.result.disconnect()
+            except (RuntimeError, TypeError):
+                pass                        # 未连接/已断开都无所谓
+            old.stop()
+            old.wait(2000)                  # 分片睡眠,最坏 0.2s 内收敛
+            old.setParent(None)
+            old.deleteLater()
+        resolved = quota.resolve_key(configured)
+        self.quota_key = resolved.key
+        self.card.set_quota_key_label(
+            resolved.masked if resolved.source == "config" else "")
+        if resolved.key:
+            self.quota_thread = _QuotaThread(resolved.key, QUOTA_POLL_MS,
+                                             self.app)
+            self.quota_thread.result.connect(self._on_quota)
+            self.quota_thread.start()
+        else:
+            self.card.set_quota_error("未配置 OpenCode Go（需 API Key）",
+                                      kind="config")
 
     # —— 数据轮询 ——
     def _poll(self) -> None:

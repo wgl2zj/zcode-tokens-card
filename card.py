@@ -204,6 +204,7 @@ class FloatCard(QWidget):
         self.quota_fetched_at = 0.0    # 上次成功取数的 epoch 秒
         self.quota_error = ""          # 非空 = 异常/未配置文案
         self.quota_error_kind = ""     # "config" = 未配置(灰字,非故障)
+        self.quota_key_label = ""      # 非空 = 状态行标明"当前用的是哪个 key"(脱敏)
         self.q_tw = {f"q{i}": _Tween(0.0) for i in range(3)}
         self.q_tw["qbig"] = _Tween(0.0)
         self._q_first = True
@@ -310,6 +311,24 @@ class FloatCard(QWidget):
         """
         self.quota_error = msg
         self.quota_error_kind = kind
+
+    def set_quota_key_label(self, label: str) -> None:
+        """标明额度数据来自哪个 key(脱敏短标签,空 = 不显示)。
+
+        只在"界面里显式配过 key"时由 main 传入:默认自动发现时状态行文案
+        与改版前逐字一致,不额外占据这一行。
+        """
+        self.quota_key_label = (label or "").strip()
+
+    def quota_fetch_note(self) -> tuple[str, bool]:
+        """供配置窗口显示"上次取数"的说明:(文案, 是否故障)。
+
+        直接复用套餐页状态行的口径(同一份文案与配色来源),避免两处漂移。
+        """
+        stale = Q.is_stale(self.quota_fetched_at, time.time(),
+                           T.QUOTA_MAX_AGE_S)
+        text, color = self._quota_status(stale)
+        return text, color == T.C_ERROR
 
     def _bar_targets(self) -> list[float]:
         sh = S.shares(self.models)
@@ -559,6 +578,11 @@ class FloatCard(QWidget):
             return "等待额度数据…", T.C_TEXT_LABEL
         if stale:
             return f"数据陈旧 · 最后更新 {when}", T.C_ERROR
+        # 界面里显式配过 key 时标明用的是哪个(脱敏,实测 203px < 可用 266px);
+        # 默认自动发现时不加前缀,与改版前逐字一致
+        if self.quota_key_label:
+            return (f"套餐额度 · {self.quota_key_label} · 更新于 {when}",
+                    T.C_TEXT_LABEL)
         return f"套餐额度 · 更新于 {when}", T.C_TEXT_LABEL
 
     def _draw_quota(self, p: QPainter, now: float) -> None:

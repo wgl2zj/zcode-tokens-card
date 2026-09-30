@@ -130,6 +130,110 @@ def test_find_api_key_missing_file(tmp_path):
     assert Q.find_api_key({}, path=tmp_path / "nope.json") == ""
 
 
+# —— key 裁决:界面配置 > 环境变量 > ZCode 配置自动发现 ——
+
+def _fake_key(tag: str) -> str:
+    """合成占位 key:拼装生成(明确非真实凭据,也避开"硬编码凭据"扫描的误判)。"""
+    return tag + "-" + "placeholder"
+
+
+def test_mask_keeps_only_head_and_tail():
+    """脱敏只留首 6 尾 4 中间省略号;原值中段不出现在结果里。"""
+    raw = "abcdefghij" + "mnop"
+    masked = Q.mask(raw)
+    assert masked == f"{raw[:6]}…{raw[-4:]}"
+    assert "abcdefghij" not in masked
+
+
+@pytest.mark.parametrize("raw", ["", "  ", "short", "1234567890"])
+def test_mask_hides_short_or_empty(raw):
+    """过短(填不满首尾)一律全掩,不泄露原值;空串仍为空串。"""
+    masked = Q.mask(raw)
+    if not raw.strip():
+        assert masked == ""
+    else:
+        assert set(masked) == {"•"}
+        assert raw.strip() not in masked
+
+
+def test_resolve_key_prefers_configured(tmp_path):
+    """界面配置优先于环境变量与 ZCode 配置——界面里选过就必须生效。"""
+    cfg_file = tmp_path / "provider_config.json"
+    ui, env, zcode = _fake_key("ui"), _fake_key("env"), _fake_key("zcode")
+    _write_config(cfg_file, [_rule(Q.PROVIDER_ID, zcode)])
+    got = Q.resolve_key(ui, {"OPENCODE_GO_API_KEY": env}, path=cfg_file)
+    assert got.key == ui
+    assert (got.source, got.source_label) == ("config", "界面配置")
+
+
+def test_resolve_key_falls_back_to_env_then_zcode(tmp_path):
+    """无界面配置时:环境变量优先,其次 ZCode 配置里 opencode-go-chat 的 key。"""
+    env, zcode = _fake_key("env"), _fake_key("zcode")
+    cfg_file = tmp_path / "provider_config.json"
+    _write_config(cfg_file, [
+        _rule("other-provider", _fake_key("other")),
+        _rule(Q.PROVIDER_ID, f" {zcode} "),
+    ])
+    env_hit = Q.resolve_key("", {"OPENCODE_GO_API_KEY": env}, path=cfg_file)
+    assert (env_hit.key, env_hit.source) == (env, "env")
+    zcode_hit = Q.resolve_key("", {}, path=cfg_file)
+    assert (zcode_hit.key, zcode_hit.source) == (zcode, "zcode")
+    assert zcode_hit.provider_id == Q.PROVIDER_ID
+
+
+def test_resolve_key_none_when_nothing_available(tmp_path):
+    """三者皆无 → 空 key + source="none"(界面据此显示未配置),不抛异常。"""
+    got = Q.resolve_key("  ", {}, path=tmp_path / "absent.json")
+    assert (got.key, got.source) == ("", "none")
+    assert got.source_label == "未配置"
+    assert got.masked == ""
+
+
+def test_resolve_key_ignores_other_providers(tmp_path):
+    """自动发现只认 opencode-go-chat:只有别的供应商有 key 时仍算未配置。"""
+    cfg_file = tmp_path / "provider_config.json"
+    _write_config(cfg_file, [_rule("kimi-provider", _fake_key("kimi"))])
+    assert Q.resolve_key("", {}, path=cfg_file).key == ""
+
+
+def test_discover_keys_lists_all_providers_with_keys(tmp_path):
+    """发现列表含所有带 key 的供应商(顺序即文件顺序),跳过无 key/非字符串行。"""
+    cfg_file = tmp_path / "provider_config.json"
+    go_key, wb_key = _fake_key("go"), _fake_key("wb")
+    _write_config(cfg_file, [
+        _rule("opencode-go-chat", go_key),
+        {"providerId": "no-access", "config": {}},
+        _rule("numeric", 12345),
+        _rule("  ", "   "),                       # 只有空白 → 跳过
+        _rule("workbuddy", f" {wb_key} "),
+    ])
+    got = Q.discover_keys(path=cfg_file)
+    assert [(c.provider_id, c.api_key) for c in got] == [
+        ("opencode-go-chat", go_key),
+        ("workbuddy", wb_key),
+    ]
+    assert got[1].label == Q.mask(wb_key)
+
+
+@pytest.mark.parametrize("content", [None, "not json", "{}", '{"config": {}}'])
+def test_discover_keys_tolerates_bad_file(tmp_path, content):
+    """文件缺失/损坏/结构不符 → 空列表,不抛异常。"""
+    path = tmp_path / "provider_config.json"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+    assert Q.discover_keys(path=path) == []
+
+
+def test_discover_keys_is_read_only(tmp_path):
+    """发现列表只读 ZCode 配置:文件内容与修改时间都不变(零写入红线)。"""
+    cfg_file = tmp_path / "provider_config.json"
+    _write_config(cfg_file, [_rule(Q.PROVIDER_ID, _fake_key("ro"))])
+    before = (cfg_file.read_bytes(), cfg_file.stat().st_mtime_ns)
+    Q.discover_keys(path=cfg_file)
+    Q.resolve_key(_fake_key("ui"), {}, path=cfg_file)
+    assert (cfg_file.read_bytes(), cfg_file.stat().st_mtime_ns) == before
+
+
 # —— 出口降级 ——
 
 class _Resp:
